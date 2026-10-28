@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.pytest_cache/
+
+# Node & Frontend
+frontend/node_modules/
+frontend/.package-lock.json
+*.log
+
+# Sensitive data & user private storage
+data/
+screenshots/
+.env
+*.db
+*.sqlite3
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
