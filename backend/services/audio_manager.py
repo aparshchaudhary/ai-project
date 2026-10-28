@@ -16,12 +16,19 @@ from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 
 import numpy as np
-import sounddevice as sd
-import soundfile as sf
+
+try:
+    import sounddevice as sd
+    import soundfile as sf
+except Exception as _e:
+    sd = None
+    sf = None
+    logger.warning(f"Audio hardware libraries (sounddevice/soundfile) not available: {_e}")
 
 from backend.security.credential_store import private_config
 
 logger = logging.getLogger(__name__)
+
 
 
 class AudioManager:
@@ -128,6 +135,15 @@ class AudioManager:
         """
         Records a short audio slice and calculates live RMS audio level (0-100%).
         """
+        if sd is None:
+            return {
+                "success": False,
+                "error": "Hardware audio recording is not available in headless cloud container. Browser Web Speech is active.",
+                "device_id": 0,
+                "rms": 0.0,
+                "level_percent": 0.0,
+                "is_speaking": False
+            }
         target_device = device_id if device_id is not None else self.get_selected_device_id()
         try:
             samples = int(duration * self.sample_rate)
@@ -181,6 +197,9 @@ class AudioManager:
         - Automatically cuts the recording when silence > silence_timeout_ms.
         - Avoids fixed delays and prevents UI freezes.
         """
+        if sd is None:
+            return False, None, "Hardware sounddevice is not supported in cloud container. Please switch to Browser Web Speech mode.", {}
+
         target_device = device_id if device_id is not None else self.get_selected_device_id()
         start_time = time.time()
         chunk_duration_s = 0.1  # 100ms per analysis chunk

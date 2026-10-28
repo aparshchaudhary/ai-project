@@ -26,14 +26,19 @@ logger = logging.getLogger("aura-launcher")
 
 
 def main():
+    default_host = os.environ.get("HOST", "0.0.0.0" if (os.environ.get("RENDER") or os.environ.get("PORT")) else "127.0.0.1")
+    default_port = int(os.environ.get("PORT", 8000))
+    is_cloud = bool(os.environ.get("RENDER") or os.environ.get("PORT"))
+
     parser = argparse.ArgumentParser(description="Aura AI Voice Command Assistant")
-    parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
-    parser.add_argument("--port", type=int, default=8000, help="Port to run backend and UI")
-    parser.add_argument("--no-browser", action="store_true", help="Do not automatically open web browser")
+    parser.add_argument("--host", default=default_host, help="Host interface to bind")
+    parser.add_argument("--port", type=int, default=default_port, help="Port to run backend and UI")
+    parser.add_argument("--no-browser", action="store_true", default=is_cloud, help="Do not automatically open web browser")
     parser.add_argument("--reload", action="store_true", help="Enable hot reload for development")
     args = parser.parse_args()
 
     app_url = f"http://{args.host}:{args.port}"
+
 
     print("=" * 70)
     print("  AURA AI VOICE COMMAND ASSISTANT - DESKTOP SYSTEM")

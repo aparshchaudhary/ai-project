@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: aura-voice-assistant
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: RENDER
+        value: "true"
+      - key: OPENAI_API_KEY
+        sync: false
