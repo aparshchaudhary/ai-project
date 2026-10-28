@@ -21,28 +21,58 @@ class TTSService:
         self._voices_cache = [
             {"id": "default", "name": "Windows Desktop SAPI Voice", "gender": "Female", "languages": ["en-US", "hi-IN"]}
         ]
+        self._current_proc: Optional[subprocess.Popen] = None
 
     def get_voices(self) -> List[Dict[str, Any]]:
         return self._voices_cache
+
+    def stop(self):
+        """
+        Immediately interrupts and stops any ongoing speech playback.
+        """
+        if self._current_proc and self._current_proc.poll() is None:
+            try:
+                self._current_proc.terminate()
+                self._current_proc.wait(timeout=0.2)
+            except Exception:
+                try:
+                    self._current_proc.kill()
+                except Exception:
+                    pass
+            self._current_proc = None
+
+        if os.name == "nt":
+            # Extra safety: kill any orphaned SAPI PowerShell instances
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", "Get-Process powershell -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*SAPI.SpVoice*' } | Stop-Process -Force"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.0
+                )
+            except Exception:
+                pass
 
     def _speak_windows_sapi(self, text: str, rate: Optional[int] = None, volume: Optional[float] = None):
         """
         Speaks text asynchronously via Windows native SAPI speech synthesizer
         without blocking the Python process or event loop.
         """
+        # Stop previous utterance before beginning new speech
+        self.stop()
+
         clean_text = text.replace('"', '`"').replace("'", "''").replace("\n", " ").strip()
         if not clean_text:
             return
 
         # SAPI Rate ranges from -10 to 10 (normal is 0 to 2)
-        # settings.tts_rate is ~180 wpm
         sapi_rate = 1
         if rate:
             sapi_rate = max(-5, min(5, int((rate - 150) / 25)))
 
         cmd = f"$v = New-Object -ComObject SAPI.SpVoice; $v.Rate = {sapi_rate}; [void]$v.Speak('{clean_text}')"
         try:
-            subprocess.Popen(
+            self._current_proc = subprocess.Popen(
                 ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", cmd],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -60,7 +90,6 @@ class TTSService:
         if os.name == "nt":
             self._speak_windows_sapi(text, rate, volume)
         else:
-            # Fallback
             logger.info(f"[TTS Output]: {text}")
 
     async def render_wav(self, text: str) -> Optional[bytes]:
@@ -71,3 +100,4 @@ class TTSService:
 
 
 tts_service = TTSService()
+

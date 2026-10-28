@@ -123,3 +123,104 @@ export interface DemoSample {
   intent: string;
   description: string;
 }
+
+export interface AudioDeviceItem {
+  id: number;
+  name: string;
+  channels: number;
+  default_samplerate: number;
+  is_default: boolean;
+  is_selected: boolean;
+}
+
+export interface AudioLevelResult {
+  success: boolean;
+  device_id: number;
+  device_name: string;
+  rms: number;
+  level_percent: number;
+  is_speaking: boolean;
+  error?: string;
+}
+
+export interface LatencyMetrics {
+  vad_capture_ms?: number;
+  stt_transcription_ms?: number;
+  total_speech_ms?: number;
+  audio_duration_s?: number;
+  ambient_rms?: number;
+  threshold?: number;
+  device_id?: number;
+}
+
+export interface SecurityPermissionsData {
+  persistent_permissions: Record<string, {
+    scope: string;
+    target: string;
+    granted_at: string;
+    expires_at: number;
+    duration_days: number;
+  }>;
+  authorized_directories: string[];
+  dpapi_available: boolean;
+}
+
+export interface AuditLogEntry {
+  timestamp: string;
+  action: string;
+  scope: string;
+  success: boolean;
+  details: Record<string, any>;
+}
+
+export interface DiagnosticsResult {
+  overall_status: 'healthy' | 'unhealthy';
+  timestamp: string;
+  total_latency_ms: number;
+  components: {
+    microphone?: {
+      status: string;
+      device_id?: number;
+      device_name?: string;
+      rms?: number;
+      level_percent?: number;
+      latency_ms?: number;
+    };
+    vad?: {
+      status: string;
+      energy_threshold?: number;
+      silence_duration_ms?: number;
+      mode?: string;
+    };
+    stt?: {
+      status: string;
+      engine?: string;
+      language?: string;
+      whisper_api_configured?: boolean;
+    };
+    tts?: {
+      status: string;
+      engine?: string;
+      interrupt_support?: boolean;
+    };
+    dpapi_vault?: {
+      status: string;
+      available?: boolean;
+      vault_path?: string;
+      latency_ms?: number;
+    };
+    sandbox_boundary?: {
+      status: string;
+      traversal_attack_blocked?: boolean;
+      test_target?: string;
+      rejection_reason?: string;
+    };
+    whatsapp_integration?: {
+      status: string;
+      registered?: boolean;
+      protocol?: string;
+      persistent_permission_cached?: boolean;
+    };
+  };
+}
+

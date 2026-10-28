@@ -19,11 +19,12 @@ import {
 } from 'lucide-react';
 import { CentralMic } from '../components/CentralMic';
 import { VoiceWaveform } from '../components/VoiceWaveform';
-import { AssistantState, ConversationTurn, SystemStatus, ReminderItem } from '../types';
+import { AssistantState, ConversationTurn, SystemStatus, ReminderItem, AudioDeviceItem, LatencyMetrics } from '../types';
 
 interface DashboardProps {
   assistantState: AssistantState;
   onToggleMic: () => void;
+  onStopVoice?: () => void;
   audioLevel: number;
   transcript: string;
   assistantName: string;
@@ -34,11 +35,16 @@ interface DashboardProps {
   onSpeakText: (text: string) => void;
   micMode?: 'desktop' | 'browser';
   onToggleMicMode?: (mode: 'desktop' | 'browser') => void;
+  devices?: AudioDeviceItem[];
+  selectedDeviceId?: number | null;
+  onSelectDevice?: (id: number) => void;
+  latencyMetrics?: LatencyMetrics | null;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
   assistantState,
   onToggleMic,
+  onStopVoice,
   audioLevel,
   transcript,
   assistantName,
@@ -49,6 +55,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSpeakText,
   micMode = 'desktop',
   onToggleMicMode,
+  devices = [],
+  selectedDeviceId = null,
+  onSelectDevice,
+  latencyMetrics = null,
 }) => {
   const [textInput, setTextInput] = useState('');
 
@@ -81,10 +91,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <CentralMic
             state={assistantState}
             onToggle={onToggleMic}
+            onStopVoice={onStopVoice}
             transcript={transcript}
             assistantName={assistantName}
             micMode={micMode}
             onToggleMicMode={onToggleMicMode}
+            audioLevel={audioLevel}
+            devices={devices}
+            selectedDeviceId={selectedDeviceId}
+            onSelectDevice={onSelectDevice}
+            latencyMetrics={latencyMetrics}
           />
 
           <VoiceWaveform

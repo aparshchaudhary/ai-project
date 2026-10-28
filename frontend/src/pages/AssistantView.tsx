@@ -11,11 +11,12 @@ import {
 } from 'lucide-react';
 import { CentralMic } from '../components/CentralMic';
 import { VoiceWaveform } from '../components/VoiceWaveform';
-import { AssistantState, CommandExecutionResult } from '../types';
+import { AssistantState, CommandExecutionResult, AudioDeviceItem, LatencyMetrics } from '../types';
 
 interface AssistantViewProps {
   assistantState: AssistantState;
   onToggleMic: () => void;
+  onStopVoice?: () => void;
   audioLevel: number;
   transcript: string;
   assistantName: string;
@@ -23,11 +24,16 @@ interface AssistantViewProps {
   onSpeakText: (text: string) => void;
   micMode?: 'desktop' | 'browser';
   onToggleMicMode?: (mode: 'desktop' | 'browser') => void;
+  devices?: AudioDeviceItem[];
+  selectedDeviceId?: number | null;
+  onSelectDevice?: (id: number) => void;
+  latencyMetrics?: LatencyMetrics | null;
 }
 
 export const AssistantView: React.FC<AssistantViewProps> = ({
   assistantState,
   onToggleMic,
+  onStopVoice,
   audioLevel,
   transcript,
   assistantName,
@@ -35,6 +41,10 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
   onSpeakText,
   micMode = 'desktop',
   onToggleMicMode,
+  devices = [],
+  selectedDeviceId = null,
+  onSelectDevice,
+  latencyMetrics = null,
 }) => {
   const steps = [
     { num: 1, title: 'Voice Capture', icon: Mic, active: assistantState === 'listening' },
@@ -63,10 +73,16 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
         <CentralMic
           state={assistantState}
           onToggle={onToggleMic}
+          onStopVoice={onStopVoice}
           transcript={transcript}
           assistantName={assistantName}
           micMode={micMode}
           onToggleMicMode={onToggleMicMode}
+          audioLevel={audioLevel}
+          devices={devices}
+          selectedDeviceId={selectedDeviceId}
+          onSelectDevice={onSelectDevice}
+          latencyMetrics={latencyMetrics}
         />
 
         <VoiceWaveform

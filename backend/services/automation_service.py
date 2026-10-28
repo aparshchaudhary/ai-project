@@ -129,6 +129,18 @@ DEFAULT_APPLICATIONS = [
         "aliases": ["settings", "system settings", "windows settings"],
         "paths": ["start ms-settings:"],
         "process_name": "SystemSettings.exe"
+    },
+    {
+        "app_key": "whatsapp",
+        "display_name": "WhatsApp",
+        "aliases": ["whatsapp", "whats app", "wa", "whatsapp desktop"],
+        "paths": [
+            "start whatsapp:",
+            os.path.expandvars(r"%LOCALAPPDATA%\WhatsApp\WhatsApp.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\WhatsApp\WhatsApp.exe"),
+            "https://web.whatsapp.com"
+        ],
+        "process_name": "WhatsApp.exe"
     }
 ]
 
@@ -138,13 +150,12 @@ class AutomationService:
         self._seed_default_apps()
 
     def _seed_default_apps(self):
-        """Seeds standard applications in DB if empty."""
+        """Seeds standard applications in DB and ensures newly added defaults exist."""
         db = SessionLocal()
         try:
-            count = db.query(AppRegistry).count()
-            if count == 0:
-                for app in DEFAULT_APPLICATIONS:
-                    # Find executable path
+            existing_keys = {item.app_key for item in db.query(AppRegistry.app_key).all()}
+            for app in DEFAULT_APPLICATIONS:
+                if app["app_key"] not in existing_keys:
                     resolved_exec = self._resolve_executable(app["paths"])
                     item = AppRegistry(
                         app_key=app["app_key"],
@@ -152,10 +163,10 @@ class AutomationService:
                         aliases_json=json.dumps(app["aliases"]),
                         exec_path=resolved_exec or app["paths"][0],
                         is_custom=False,
-                        is_available=bool(resolved_exec)
+                        is_available=True
                     )
                     db.add(item)
-                db.commit()
+            db.commit()
         except Exception as e:
             logger.error(f"Error seeding app registry: {e}")
             db.rollback()

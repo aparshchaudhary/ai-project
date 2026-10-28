@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, Tuple
 
 from backend.config.settings import settings
 from backend.models.schemas import IntentResult
+from backend.security.permissions import permission_manager, PermissionScope
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +36,18 @@ class SecurityService:
     def assess_risk(self, intent_result: IntentResult) -> Tuple[str, bool, Optional[str]]:
         """
         Determines risk level and whether confirmation is required.
+        Checks persistent permissions in private DPAPI store to avoid repeated nagging prompts.
         Returns: (risk_level, requires_confirmation, confirmation_prompt)
         """
         intent = intent_result.intent
+        entities = intent_result.entities
 
-        # High-risk operations (Always require confirmation unless explicitly disabled by admin)
+        # 1. High-risk operations (Always require confirmation unless explicitly disabled by admin)
         if intent in ["delete_file", "shutdown", "restart", "sleep_computer"]:
             prompt = intent_result.confirmation_prompt
             if not prompt:
                 if intent == "delete_file":
-                    fname = intent_result.entities.get("file_name", "the selected file")
+                    fname = entities.get("file_name", "the selected file")
                     prompt = f"Are you sure you want to permanently delete '{fname}'?"
                 elif intent == "shutdown":
                     prompt = "Are you sure you want to shut down your computer?"
@@ -53,15 +56,39 @@ class SecurityService:
                 elif intent == "sleep_computer":
                     prompt = "Do you want to put your computer to sleep?"
 
+            permission_manager.audit_log("SECURITY_CHECK_HIGH_RISK", intent, True, {"prompt": prompt})
             return "high", settings.require_confirmation_high_risk, prompt
 
-        # Medium-risk operations
+        # 2. Application Launch - check persistent permission store
+        if intent == "open_application":
+            app_target = entities.get("application", "").lower().strip()
+            # If user already granted permission, no confirmation prompt
+            if permission_manager.is_permission_granted(PermissionScope.APP_LAUNCH, app_target):
+                return "low", False, None
+
+            # Standard approved desktop applications are automatically authorized persistently
+            standard_safe_apps = [
+                "chrome", "google chrome", "browser", "msedge", "edge", "firefox",
+                "code", "vs code", "vscode", "notepad", "calculator", "calc",
+                "explorer", "file explorer", "whatsapp", "whats app", "wa", "whatsapp desktop",
+                "spotify", "discord", "taskmgr", "task manager", "settings"
+            ]
+            if any(s == app_target or s in app_target for s in standard_safe_apps):
+                permission_manager.grant_permission(PermissionScope.APP_LAUNCH, app_target, duration_days=30)
+                return "low", False, None
+
+            # If it's an arbitrary unknown app and medium-risk confirmation is on
+            if settings.require_confirmation_med_risk:
+                return "medium", True, f"Do you grant permission to launch '{app_target}'?"
+            return "low", False, None
+
+        # 3. Medium-risk file system operations
         if intent in ["create_folder", "create_file", "rename_file", "move_file", "clipboard_clear"]:
             if settings.require_confirmation_med_risk and intent in ["rename_file", "move_file", "clipboard_clear"]:
                 return "medium", True, f"Please confirm you want to proceed with {intent.replace('_', ' ')}."
             return "medium", False, None
 
-        # Low-risk operations (Execute automatically)
+        # 4. Low-risk operations (Execute automatically)
         return "low", False, None
 
     def create_confirmation_request(self, intent_result: IntentResult) -> str:
@@ -79,11 +106,18 @@ class SecurityService:
 
     def consume_confirmation(self, confirmation_id: str) -> Optional[IntentResult]:
         """
-        Retrieves and removes approved action for execution.
+        Retrieves and removes approved action for execution, persisting approved scope.
         """
         self._clean_expired()
         pending = self._pending_confirmations.pop(confirmation_id, None)
         if pending and not pending.is_expired():
+            # If this was an app launch or scoped action, persist permission to prevent repeating prompts
+            intent = pending.intent_result.intent
+            entities = pending.intent_result.entities
+            if intent == "open_application":
+                app_target = entities.get("application", "").lower().strip()
+                permission_manager.grant_permission(PermissionScope.APP_LAUNCH, app_target)
+
             return pending.intent_result
         return None
 
@@ -98,40 +132,19 @@ class SecurityService:
 
     def is_safe_path(self, target_path: Path) -> bool:
         """
-        Validates that a path is within the allowed user directories
-        and not inside system critical directories (Windows, Program Files, system32).
+        Validates path safety against sandbox allowlist, preventing path traversal,
+        symlink escapes, and Windows system directory tampering.
         """
-        try:
-            resolved = target_path.resolve()
-            # Forbid sensitive paths
-            forbidden_roots = [
-                Path("C:/Windows").resolve(),
-                Path("C:/Program Files").resolve(),
-                Path("C:/Program Files (x86)").resolve(),
-            ]
-            for f in forbidden_roots:
-                if f in resolved.parents or resolved == f:
-                    logger.warning(f"Access denied to system directory: {resolved}")
-                    return False
-
-            # Check if within user home or safe directories
-            for safe_dir in settings.safe_dirs:
-                try:
-                    safe_res = safe_dir.resolve()
-                    if safe_res in resolved.parents or resolved == safe_res:
-                        return True
-                except Exception:
-                    continue
-
-            # Also allow anything directly under user home directory
-            user_home = Path.home().resolve()
-            if user_home in resolved.parents:
-                return True
-
+        authorized, reason = permission_manager.is_path_authorized(target_path)
+        if not authorized:
+            logger.warning(f"Path safety violation: {target_path} - {reason}")
+            permission_manager.audit_log("PATH_SECURITY_VIOLATION", "file_boundary", False, {
+                "target": str(target_path),
+                "reason": reason
+            })
             return False
-        except Exception as e:
-            logger.error(f"Error checking path safety: {e}")
-            return False
+        return True
 
 
 security_service = SecurityService()
+

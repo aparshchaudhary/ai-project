@@ -330,7 +330,11 @@ class NLPService:
             )
 
         # 10. Time & Date
-        if any(w in clean_text for w in ["what time is it", "current time", "tell me the time", "what is the time", "kitne baje", "samay kya hai", "what time", "the time"]):
+        if any(w in clean_text for w in [
+            "what time is it", "current time", "tell me the time", "what is the time",
+            "kitne baje", "samay kya hai", "kya samay hua hai", "samay kya hua", "kya samay hai",
+            "time kya hai", "what time", "the time"
+        ]):
             if "date" not in clean_text:
                 return IntentResult(
                     intent="get_time",
@@ -534,9 +538,13 @@ class NLPService:
         return None
 
     def _extract_app_name(self, phrase: str) -> str:
-        clean = phrase.lower().replace("application", "").replace("app", "").replace("the", "").replace("google", "").strip()
+        # Use word boundaries so 'app' in 'whatsapp' is never stripped
+        clean = re.sub(r"\b(application|app|the|google)\b", "", phrase.lower(), flags=re.IGNORECASE).strip()
         # Common aliases mapping
         mapping = {
+            "whatsapp": "whatsapp",
+            "whats app": "whatsapp",
+            "wa": "whatsapp",
             "chrome": "chrome",
             "browser": "chrome",
             "edge": "msedge",
@@ -561,6 +569,7 @@ class NLPService:
             "task manager": "taskmgr",
         }
         return mapping.get(clean, clean)
+
 
     def _extract_search_entities(self, text: str) -> Tuple[str, str]:
         engine = "google"

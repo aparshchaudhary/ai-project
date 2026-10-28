@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   LayoutDashboard,
   Mic,
@@ -8,11 +7,15 @@ import {
   BarChart3,
   Settings,
   HelpCircle,
+  Activity,
+  Shield,
 } from 'lucide-react';
 
 export type NavTab =
   | 'dashboard'
   | 'assistant'
+  | 'diagnostics'
+  | 'permissions'
   | 'history'
   | 'reminders'
   | 'apps'
@@ -34,6 +37,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'assistant', label: 'Live Assistant', icon: Mic, badge: 'Voice' },
+    { id: 'diagnostics', label: 'Diagnostics', icon: Activity, badge: 'Hardware' },
+    { id: 'permissions', label: 'Security & Sandbox', icon: Shield },
     { id: 'history', label: 'Command History', icon: History },
     { id: 'reminders', label: 'Reminders', icon: Bell, count: pendingRemindersCount },
     { id: 'apps', label: 'Applications', icon: Grid },
@@ -41,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'help', label: 'Help & Guide', icon: HelpCircle },
   ];
+
 
   return (
     <aside className="w-20 md:w-64 bg-slate-900/95 dark:bg-slate-900/95 border-r border-slate-800 flex flex-col justify-between py-5 px-3 text-slate-300 select-none">

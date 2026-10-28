@@ -159,27 +159,63 @@ class SpeechService:
 
         return False, clean
 
-    def record_from_hardware_mic(self, duration_seconds: float = 4.0, sample_rate: int = 16000) -> Tuple[bool, str, Optional[str]]:
+    def record_from_hardware_mic(
+        self,
+        duration_seconds: Optional[float] = None,
+        use_vad: bool = True,
+        device_id: Optional[int] = None
+    ) -> Tuple[bool, str, Optional[str], Dict[str, Any]]:
         """
-        Directly captures audio from the system hardware microphone via sounddevice
-        and transcribes it into text.
+        Captures audio from the system hardware microphone (using adaptive VAD by default)
+        and transcribes it into text, recording granular latency benchmarks.
+        Returns: (success, text, error_message, metrics)
         """
-        try:
-            import sounddevice as sd
-            import soundfile as sf
+        import time
+        from backend.services.audio_manager import audio_manager
 
-            recording = sd.rec(int(duration_seconds * sample_rate), samplerate=sample_rate, channels=1, dtype='int16')
-            sd.wait()
+        total_start = time.time()
+        metrics = {
+            "vad_capture_ms": 0.0,
+            "stt_transcription_ms": 0.0,
+            "total_speech_ms": 0.0,
+            "device_id": device_id
+        }
 
-            buf = io.BytesIO()
-            sf.write(buf, recording, sample_rate, format='WAV')
-            buf.seek(0)
-            wav_bytes = buf.read()
+        if use_vad:
+            v_success, wav_bytes, v_err, v_meta = audio_manager.capture_with_vad(device_id=device_id)
+            metrics.update(v_meta)
+            if not v_success or not wav_bytes:
+                metrics["total_speech_ms"] = round((time.time() - total_start) * 1000, 1)
+                return False, "", v_err or "No speech detected.", metrics
+        else:
+            # Fixed duration fallback
+            try:
+                import sounddevice as sd
+                import soundfile as sf
+                sec = duration_seconds or 4.0
+                sr = 16000
+                cap_start = time.time()
+                rec = sd.rec(int(sec * sr), samplerate=sr, channels=1, dtype='int16', device=device_id)
+                sd.wait()
+                metrics["vad_capture_ms"] = round((time.time() - cap_start) * 1000, 1)
 
-            return self.transcribe_audio(wav_bytes, filename="hardware_mic.wav")
-        except Exception as e:
-            logger.error(f"Hardware mic recording error: {e}")
-            return False, "", f"Microphone recording error: {str(e)}"
+                buf = io.BytesIO()
+                sf.write(buf, rec, sr, format='WAV')
+                buf.seek(0)
+                wav_bytes = buf.read()
+            except Exception as e:
+                logger.error(f"Hardware mic recording error: {e}")
+                metrics["total_speech_ms"] = round((time.time() - total_start) * 1000, 1)
+                return False, "", f"Microphone recording error: {str(e)}", metrics
+
+        # Transcription phase
+        stt_start = time.time()
+        success, text, err = self.transcribe_audio(wav_bytes, filename="hardware_mic.wav")
+        metrics["stt_transcription_ms"] = round((time.time() - stt_start) * 1000, 1)
+        metrics["total_speech_ms"] = round((time.time() - total_start) * 1000, 1)
+
+        return success, text, err, metrics
 
 
 speech_service = SpeechService()
+

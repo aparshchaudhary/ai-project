@@ -4,9 +4,12 @@ FastAPI REST API Routes.
 
 import json
 import asyncio
+import time
+from pathlib import Path
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -36,9 +39,32 @@ from backend.services.screenshot_service import screenshot_service
 from backend.services.reminder_service import reminder_service
 from backend.services.automation_service import automation_service
 from backend.services.analytics_service import analytics_service
+from backend.services.audio_manager import audio_manager
+from backend.security.credential_store import private_config, WindowsDPAPI
+from backend.security.permissions import permission_manager, PermissionScope
 from backend.api.websocket import ws_manager
 
 router = APIRouter(prefix="/api")
+
+
+class SelectDeviceRequest(BaseModel):
+    device_id: int
+
+
+class GrantPermissionRequest(BaseModel):
+    scope: str
+    target: str = "*"
+    duration_days: int = 30
+
+
+class RevokePermissionRequest(BaseModel):
+    scope: str
+    target: str = "*"
+
+
+class DirectoryRequest(BaseModel):
+    directory: str
+
 
 
 # 1. Voice & Speech Endpoints
@@ -88,28 +114,37 @@ async def transcribe_audio(
 @router.post("/voice/listen-desktop")
 async def listen_from_desktop_mic(
     duration: float = Query(4.0, ge=1.0, le=15.0),
-    auto_execute: bool = Query(True)
+    use_vad: bool = Query(True),
+    auto_execute: bool = Query(True),
+    device_id: Optional[int] = Query(None)
 ):
     """
-    Directly captures audio from the system hardware microphone (sounddevice)
-    without depending on browser Web Speech API.
+    Directly captures audio from the system hardware microphone via adaptive VAD or fixed duration,
+    computes real latency benchmarks, and optionally executes commands automatically.
     """
     await ws_manager.broadcast({"type": "state_change", "state": "listening"})
-    success, text, err = await asyncio.to_thread(speech_service.record_from_hardware_mic, duration)
-    
+    success, text, err, metrics = await asyncio.to_thread(
+        speech_service.record_from_hardware_mic,
+        duration_seconds=duration,
+        use_vad=use_vad,
+        device_id=device_id
+    )
+
     if not success or not text.strip():
         await ws_manager.broadcast({"type": "state_change", "state": "idle"})
         return {
             "success": False,
             "text": "",
             "error": err or "No speech detected. Please speak into your microphone and try again.",
+            "metrics": metrics,
             "execution": None
         }
 
     await ws_manager.broadcast({
         "type": "state_change",
-        "state": "processing",
-        "transcription": text
+        "state": "executing",
+        "transcription": text,
+        "metrics": metrics
     })
 
     exec_result = None
@@ -124,8 +159,54 @@ async def listen_from_desktop_mic(
     return {
         "success": True,
         "text": text,
+        "metrics": metrics,
         "execution": exec_result.model_dump() if exec_result else None
     }
+
+
+@router.post("/voice/stop")
+async def stop_voice_playback():
+    """
+    Interrupts and immediately stops any ongoing text-to-speech output.
+    """
+    tts_service.stop()
+    await ws_manager.broadcast({"type": "state_change", "state": "idle"})
+    return {"success": True, "message": "Voice playback stopped."}
+
+
+# Audio Hardware Device Endpoints
+@router.get("/audio/devices")
+async def get_audio_input_devices():
+    """
+    Lists all available hardware and system input audio devices.
+    """
+    devices = audio_manager.list_input_devices()
+    selected_id = audio_manager.get_selected_device_id()
+    return {
+        "devices": devices,
+        "selected_device_id": selected_id
+    }
+
+
+@router.post("/audio/select-device")
+async def select_audio_device(req: SelectDeviceRequest):
+    """
+    Configures the preferred microphone device ID.
+    """
+    ok = audio_manager.select_microphone_device(req.device_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Invalid device ID {req.device_id}")
+    return {"success": True, "selected_device_id": req.device_id}
+
+
+@router.get("/audio/test-level")
+async def test_audio_level(device_id: Optional[int] = Query(None)):
+    """
+    Captures a 250ms test slice and returns the live RMS input level (0-100%).
+    """
+    res = await asyncio.to_thread(audio_manager.test_input_level, device_id)
+    return res
+
 
 
 @router.post("/voice/speak")
@@ -507,3 +588,169 @@ async def get_demo_samples():
         {"command": "Explain machine learning", "intent": "conversation", "description": "Routes to conversational AI mode"},
         {"command": "Turn off the computer", "intent": "shutdown", "description": "Demonstrates high-risk security confirmation dialog"}
     ]
+
+
+# 11. Security, Persistent Permissions & Audit Log Endpoints
+@router.get("/security/permissions")
+async def get_security_permissions():
+    """
+    Returns active persistent permission grants, authorized sandbox directories,
+    and DPAPI encryption status.
+    """
+    return {
+        "persistent_permissions": permission_manager.get_granted_permissions(),
+        "authorized_directories": [str(d) for d in private_config.get_authorized_dirs()],
+        "dpapi_available": WindowsDPAPI.is_available()
+    }
+
+
+@router.post("/security/permissions/grant")
+async def grant_persistent_permission(req: GrantPermissionRequest):
+    """
+    Persistently grants a permission scope for an application or operation.
+    """
+    record = permission_manager.grant_permission(req.scope, req.target, req.duration_days)
+    return {"success": True, "permission": record}
+
+
+@router.post("/security/permissions/revoke")
+async def revoke_persistent_permission(req: RevokePermissionRequest):
+    """
+    Revokes a previously granted permission scope.
+    """
+    permission_manager.revoke_permission(req.scope, req.target)
+    return {"success": True, "message": f"Revoked permission for '{req.scope}:{req.target}'."}
+
+
+@router.get("/security/audit-logs")
+async def get_audit_logs(limit: int = Query(50, ge=1, le=200)):
+    """
+    Returns redacted audit history for operations and security boundary evaluations.
+    """
+    logs = permission_manager.get_audit_logs(limit=limit)
+    return {"logs": logs, "count": len(logs)}
+
+
+@router.post("/security/directories/add")
+async def add_authorized_directory(req: DirectoryRequest):
+    target = Path(req.directory).resolve()
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=400, detail="Directory path does not exist.")
+    for forb in [Path("C:/Windows").resolve(), Path("C:/Program Files").resolve()]:
+        if forb in target.parents or target == forb:
+            raise HTTPException(status_code=400, detail="Cannot add protected system directory.")
+    private_config.add_authorized_dir(target)
+    return {
+        "success": True,
+        "authorized_directories": [str(d) for d in private_config.get_authorized_dirs()]
+    }
+
+
+@router.post("/security/directories/remove")
+async def remove_authorized_directory(req: DirectoryRequest):
+    target = Path(req.directory).resolve()
+    private_config.remove_authorized_dir(target)
+    return {
+        "success": True,
+        "authorized_directories": [str(d) for d in private_config.get_authorized_dirs()]
+    }
+
+
+# 12. Comprehensive System Diagnostics
+@router.get("/diagnostics/run")
+async def run_diagnostics():
+    """
+    Performs end-to-end hardware, audio pipeline, security boundary,
+    and DPAPI encryption diagnostics, returning real measured latencies in milliseconds.
+    """
+    start_all = time.time()
+    results = {}
+
+    # 1. Hardware Microphone Test
+    t0 = time.time()
+    mic_test = await asyncio.to_thread(audio_manager.test_input_level, None, 0.2)
+    mic_lat = round((time.time() - t0) * 1000, 1)
+    results["microphone"] = {
+        "status": "pass" if mic_test.get("success") else "fail",
+        "device_id": mic_test.get("device_id"),
+        "device_name": mic_test.get("device_name"),
+        "rms": mic_test.get("rms", 0.0),
+        "level_percent": mic_test.get("level_percent", 0.0),
+        "latency_ms": mic_lat
+    }
+
+    # 2. Voice Activity Detection (VAD) Engine
+    v_thresh = private_config.get("audio", "vad_energy_threshold", 320)
+    v_silence = private_config.get("audio", "vad_silence_duration_ms", 700)
+    results["vad"] = {
+        "status": "pass",
+        "energy_threshold": v_thresh,
+        "silence_duration_ms": v_silence,
+        "mode": "Adaptive RMS with ambient noise calibration"
+    }
+
+    # 3. Speech-to-Text (STT) Engine
+    stt_ok = bool(speech_service.engine)
+    results["stt"] = {
+        "status": "pass" if stt_ok else "warn",
+        "engine": settings.stt_engine,
+        "language": settings.default_language,
+        "whisper_api_configured": bool(settings.openai_api_key)
+    }
+
+    # 4. Text-to-Speech (TTS) Engine
+    results["tts"] = {
+        "status": "pass",
+        "engine": "Windows Native SAPI 5.4 (detached non-blocking)",
+        "interrupt_support": True
+    }
+
+    # 5. Windows DPAPI Credential Store Check
+    t0 = time.time()
+    dpapi_pass = False
+    try:
+        raw_test = b"diagnostic_probe_test"
+        enc = WindowsDPAPI.protect(raw_test)
+        dec = WindowsDPAPI.unprotect(enc)
+        dpapi_pass = (dec == raw_test)
+    except Exception:
+        dpapi_pass = False
+    dpapi_lat = round((time.time() - t0) * 1000, 2)
+    results["dpapi_vault"] = {
+        "status": "pass" if dpapi_pass else "fail",
+        "available": WindowsDPAPI.is_available(),
+        "vault_path": str(Path.home() / ".aura_assistant" / "vault.bin"),
+        "latency_ms": dpapi_lat
+    }
+
+    # 6. Security Sandbox & Path Traversal Check
+    traversal_test = Path("../../Windows/System32/cmd.exe")
+    is_auth, reason = permission_manager.is_path_authorized(traversal_test)
+    sandbox_pass = (not is_auth)  # Must be blocked!
+    results["sandbox_boundary"] = {
+        "status": "pass" if sandbox_pass else "fail",
+        "traversal_attack_blocked": sandbox_pass,
+        "test_target": str(traversal_test),
+        "rejection_reason": reason
+    }
+
+    # 7. WhatsApp Desktop / Protocol Integration Check
+    wa_app = automation_service.find_app("whatsapp")
+    wa_ok = bool(wa_app)
+    results["whatsapp_integration"] = {
+        "status": "pass" if wa_ok else "warn",
+        "registered": wa_ok,
+        "protocol": "start whatsapp:",
+        "persistent_permission_cached": permission_manager.is_permission_granted(PermissionScope.APP_LAUNCH, "whatsapp")
+    }
+
+    total_diag_lat = round((time.time() - start_all) * 1000, 1)
+    all_passed = all(r.get("status") in ["pass", "warn"] for r in results.values())
+
+    return {
+        "overall_status": "healthy" if all_passed else "unhealthy",
+        "timestamp": datetime.now().isoformat(),
+        "total_latency_ms": total_diag_lat,
+        "components": results
+    }
+

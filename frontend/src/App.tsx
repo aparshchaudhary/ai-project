@@ -14,6 +14,8 @@ import { ApplicationsPage } from './pages/ApplicationsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { HelpPage } from './pages/HelpPage';
+import { DiagnosticsPage } from './pages/DiagnosticsPage';
+import { PermissionsPage } from './pages/PermissionsPage';
 
 import { useVoiceRecognition } from './hooks/useVoiceRecognition';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -26,6 +28,8 @@ import {
   ReminderItem,
   CommandExecutionResult,
   AppSettings,
+  AudioDeviceItem,
+  LatencyMetrics,
 } from './types';
 
 export function App() {
@@ -35,6 +39,12 @@ export function App() {
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [conversationHistory, setConversationHistory] = useState<ConversationTurn[]>([]);
   const [lastResult, setLastResult] = useState<CommandExecutionResult | null>(null);
+
+  // Audio Hardware Devices & Latency metrics
+  const [audioDevices, setAudioDevices] = useState<AudioDeviceItem[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<number | null>(null);
+  const [latestMetrics, setLatestMetrics] = useState<LatencyMetrics | null>(null);
+
 
   // Settings
   const [settings, setSettings] = useState<AppSettings>({
@@ -72,14 +82,19 @@ export function App() {
   // Fetch initial data
   const loadInitialData = useCallback(async () => {
     try {
-      const [sData, rData, stData] = await Promise.all([
+      const [sData, rData, stData, dData] = await Promise.all([
         api.getSettings(),
         api.getReminders(false),
         api.getSystemStatus(),
+        api.getAudioDevices().catch(() => ({ devices: [], selected_device_id: null })),
       ]);
       setSettings(sData);
       setReminders(rData);
       setSystemStatus(stData);
+      if (dData && dData.devices) {
+        setAudioDevices(dData.devices);
+        setSelectedDeviceId(dData.selected_device_id);
+      }
     } catch (e) {
       console.warn('Initial data load error:', e);
     }
@@ -95,6 +110,40 @@ export function App() {
 
     return () => clearInterval(interval);
   }, [loadInitialData]);
+
+  const handleSelectDevice = async (id: number) => {
+    try {
+      await api.selectAudioDevice(id);
+      setSelectedDeviceId(id);
+      const d = await api.getAudioDevices();
+      setAudioDevices(d.devices);
+    } catch (e) {
+      console.warn('Device select error:', e);
+    }
+  };
+
+  const handleStopVoice = async () => {
+    try {
+      await api.stopVoice();
+      setAssistantState('idle');
+    } catch (e) {
+      setAssistantState('idle');
+    }
+  };
+
+  // Keyboard shortcut listener (Esc to stop speaking, Ctrl+Space for voice toggle)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && assistantState === 'speaking') {
+        handleStopVoice();
+      } else if (e.code === 'Space' && e.ctrlKey) {
+        e.preventDefault();
+        handleToggleMic();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [assistantState, selectedDeviceId]);
 
   // Execute Command Pipeline
   const executeCommand = useCallback(
@@ -189,11 +238,26 @@ export function App() {
   }, [isListening, sttProcessing]);
 
   const handleToggleMic = async () => {
+    if (assistantState === 'speaking') {
+      handleStopVoice();
+      return;
+    }
+
     if (micMode === 'desktop') {
       if (assistantState === 'listening') return;
       setAssistantState('listening');
       try {
-        const res = await api.listenDesktopMic(4.0);
+        const res = await api.listenDesktopMic({
+          duration: 4.0,
+          use_vad: true,
+          device_id: selectedDeviceId ?? undefined,
+          auto_execute: true,
+        });
+
+        if (res.metrics) {
+          setLatestMetrics(res.metrics);
+        }
+
         if (res.success && res.text) {
           if (res.execution) {
             setLastResult(res.execution);
@@ -320,6 +384,7 @@ export function App() {
             <Dashboard
               assistantState={assistantState}
               onToggleMic={handleToggleMic}
+              onStopVoice={handleStopVoice}
               audioLevel={audioLevel}
               transcript={transcript}
               assistantName={settings.app_name}
@@ -330,6 +395,10 @@ export function App() {
               onSpeakText={handleSpeakText}
               micMode={micMode}
               onToggleMicMode={setMicMode}
+              devices={audioDevices}
+              selectedDeviceId={selectedDeviceId}
+              onSelectDevice={handleSelectDevice}
+              latencyMetrics={latestMetrics}
             />
           )}
 
@@ -337,6 +406,7 @@ export function App() {
             <AssistantView
               assistantState={assistantState}
               onToggleMic={handleToggleMic}
+              onStopVoice={handleStopVoice}
               audioLevel={audioLevel}
               transcript={transcript}
               assistantName={settings.app_name}
@@ -344,8 +414,16 @@ export function App() {
               onSpeakText={handleSpeakText}
               micMode={micMode}
               onToggleMicMode={setMicMode}
+              devices={audioDevices}
+              selectedDeviceId={selectedDeviceId}
+              onSelectDevice={handleSelectDevice}
+              latencyMetrics={latestMetrics}
             />
           )}
+
+          {activeTab === 'diagnostics' && <DiagnosticsPage />}
+
+          {activeTab === 'permissions' && <PermissionsPage />}
 
           {activeTab === 'history' && <HistoryPage />}
 
