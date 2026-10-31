@@ -4,11 +4,12 @@ Executes the secure pipeline:
 AI / Voice -> Intent Detection -> Validation -> Permission Check -> Predefined Function -> Execution -> TTS & Logging.
 """
 
+from __future__ import annotations
 import time
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from backend.config.settings import settings
 from backend.database.database import SessionLocal
