@@ -6,7 +6,18 @@ Aura allows users to control their computer, launch and manage applications, sea
 
 ---
 
+## 🚀 Latest Updates & Security Highlights
+
+- **Fixed Critical Security Bugs**: Patched command injection flaws, secured spoken confirmation IDs against replay attacks, and fixed background audio thread overlap.
+- **Added Multilingual NLP**: Integrated voice command parsing for both English and Hindi/Hinglish (e.g., *"Chrome kholo"*, *"Take a screenshot"*).
+- **Upgraded Frontend UI**: Built a React + TypeScript + Tailwind CSS dark-mode interface featuring real-time audio waveforms and WebSocket streaming.
+- **Enhanced System Services**: Added automated file searching, screen captures, weather, analytics, and reminder services.
+- **Added Testing & Credential Storage**: Implemented Windows DPAPI encryption for API keys and added test suites for security and path-traversal prevention.
+
+---
+
 ## 🌟 Key Features
+
 
 1. **Dual Voice Activation Modes**:
    - **Push-to-Talk**: Click the animated reactive microphone or press the trigger.
