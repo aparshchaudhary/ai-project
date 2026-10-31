@@ -1,0 +1,15 @@
+# Aura AI 2.0 Feature Roadmap
+
+- Part 1: Source Code Audit & Security Stabilization (Completed)
+- Part 2: Intelligent Conversation Engine (Stage 2)
+- Part 3: Smart Application Discovery (Stage 2)
+- Part 4: Intelligent File Finder (Stage 3)
+- Part 5: Screenshot Intelligence & OCR (Stage 3)
+- Part 6: Deep Research Engine (Stage 4)
+- Part 7: Voice Engine & Audio Interruption (Stage 5)
+- Part 8: Reminders & Alarms (Stage 5)
+- Part 9: Desktop Automation & Tool Registry (Stage 6)
+- Part 10: Permission & Security System (Stage 1 / Stage 6)
+- Part 11: Personal Knowledge Base RAG (Stage 4)
+- Part 12-14: System Monitoring, Media & Productivity (Stage 6)
+- Part 15: Futuristic Dark UI Redesign (Stage 7)
