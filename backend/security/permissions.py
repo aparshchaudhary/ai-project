@@ -6,17 +6,36 @@ Enforces real boundaries:
 - Audit logging with automated credential redaction.
 """
 
+from __future__ import annotations
 import os
+import uuid
 import json
 import time
 import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
+from pydantic import BaseModel, Field
 
 from backend.security.credential_store import private_config, redact_secrets
 
 logger = logging.getLogger(__name__)
+
+
+class PendingConfirmation(BaseModel):
+    id: str
+    action_type: str
+    target: str
+    created_at: float
+    ttl: float = 60.0  # Expire after 60 seconds
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class Grant(BaseModel):
+    action_type: str
+    target: str
+    granted_at: float
+    expires_at: Optional[float] = None
 
 # Sensitive system locations explicitly forbidden
 FORBIDDEN_ROOTS = [
@@ -41,6 +60,60 @@ class PermissionScope:
 class PermissionManager:
     def __init__(self):
         self._audit_logs: List[Dict[str, Any]] = []
+        self._pending: Dict[str, PendingConfirmation] = {}
+        self._grants: Dict[str, Grant] = {}
+
+    def create_confirmation_request(self, action_type: str, target: str, parameters: Optional[Dict[str, Any]] = None) -> PendingConfirmation:
+        conf_id = str(uuid.uuid4())
+        conf = PendingConfirmation(
+            id=conf_id,
+            action_type=action_type,
+            target=target,
+            created_at=time.time(),
+            parameters=parameters or {}
+        )
+        self._pending[conf_id] = conf
+        return conf
+
+    def verify_and_grant(self, confirmation_id: str, approved: bool) -> bool:
+        if confirmation_id not in self._pending:
+            return False
+        
+        conf = self._pending.pop(confirmation_id)
+        if time.time() - conf.created_at > conf.ttl:
+            return False  # Expired
+        
+        if approved:
+            grant_key = f"{conf.action_type}:{conf.target.lower().strip()}"
+            self._grants[grant_key] = Grant(
+                action_type=conf.action_type,
+                target=conf.target,
+                granted_at=time.time()
+            )
+            # Also grant in persistent config
+            self.grant_permission(conf.action_type, conf.target)
+            return True
+        return False
+
+    def is_granted(self, action_type: str, target: str) -> bool:
+        grant_key = f"{action_type}:{target.lower().strip()}"
+        grant = self._grants.get(grant_key)
+        if grant:
+            if grant.expires_at and time.time() > grant.expires_at:
+                del self._grants[grant_key]
+                return False
+            return True
+        return self.is_permission_granted(action_type, target)
+
+    def revoke_grant(self, action_type: str, target: str) -> bool:
+        grant_key = f"{action_type}:{target.lower().strip()}"
+        removed = False
+        if grant_key in self._grants:
+            del self._grants[grant_key]
+            removed = True
+        if self.revoke_permission(action_type, target):
+            removed = True
+        return removed
 
     def get_granted_permissions(self) -> Dict[str, Dict[str, Any]]:
         perms = private_config.get("security", "persistent_permissions", {})

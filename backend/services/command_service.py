@@ -408,3 +408,52 @@ class CommandService:
 
 
 command_service = CommandService()
+
+
+ALLOWED_EXECUTABLES = {
+    "notepad": r"C:\Windows\System32\notepad.exe",
+    "calc": r"C:\Windows\System32\calc.exe",
+    "explorer": r"C:\Windows\explorer.exe",
+    "cmd": r"C:\Windows\System32\cmd.exe"
+}
+
+
+class SafeCommandExecutor:
+    @staticmethod
+    def launch_app(app_key: str) -> Dict[str, Any]:
+        if app_key not in ALLOWED_EXECUTABLES:
+            return {"success": False, "error": f"Application '{app_key}' is not in the security registry."}
+        
+        from backend.security.permissions import permission_manager
+        if not permission_manager.is_granted("launch_app", app_key):
+            conf = permission_manager.create_confirmation_request("launch_app", app_key)
+            return {
+                "success": False,
+                "requires_confirmation": True,
+                "confirmation_id": conf.id,
+                "message": f"Permission required to launch {app_key}."
+            }
+        
+        try:
+            path = ALLOWED_EXECUTABLES[app_key]
+            import subprocess
+            subprocess.Popen([path], shell=False)
+            return {"success": True, "message": f"Launched {app_key} successfully."}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def execute_whitelisted_cmd(command_tokens: List[str]) -> Dict[str, Any]:
+        """Executes strictly tokenized commands without shell invocation."""
+        if not command_tokens or command_tokens[0] not in ["ping", "tracert", "systeminfo"]:
+            return {"success": False, "error": "Command not permitted by security policy."}
+        
+        try:
+            import subprocess
+            result = subprocess.run(command_tokens, capture_output=True, text=True, timeout=10, shell=False)
+            return {"success": True, "stdout": result.stdout, "stderr": result.stderr}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+
+command_executor = SafeCommandExecutor()

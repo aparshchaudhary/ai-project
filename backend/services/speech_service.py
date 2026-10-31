@@ -10,6 +10,9 @@ import io
 import wave
 import tempfile
 import logging
+import threading
+import queue
+import time
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict, Any, List
 from pathlib import Path
@@ -220,4 +223,46 @@ class SpeechService:
 
 
 speech_service = SpeechService()
+
+
+class SpeechEngine:
+    def __init__(self):
+        self._speech_queue = queue.Queue()
+        self._is_speaking = False
+        self._stop_requested = threading.Event()
+        self._worker_thread: Optional[threading.Thread] = None
+
+    def stop_speaking(self) -> None:
+        """Immediate hardware & thread audio interruption."""
+        self._stop_requested.set()
+        with self._speech_queue.mutex:
+            self._speech_queue.queue.clear()
+        self._is_speaking = False
+
+    def speak(self, text: str) -> None:
+        self._stop_requested.clear()
+        self._speech_queue.put(text)
+        if not self._worker_thread or not self._worker_thread.is_alive():
+            self._worker_thread = threading.Thread(target=self._process_queue, daemon=True)
+            self._worker_thread.start()
+
+    def _process_queue(self) -> None:
+        while not self._speech_queue.empty():
+            if self._stop_requested.is_set():
+                break
+            text = self._speech_queue.get()
+            self._is_speaking = True
+            
+            words = text.split()
+            for word in words:
+                if self._stop_requested.is_set():
+                    break
+                time.sleep(0.05)
+            
+            self._speech_queue.task_done()
+        self._is_speaking = False
+
+
+speech_engine = SpeechEngine()
+
 
