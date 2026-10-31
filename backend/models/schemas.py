@@ -2,9 +2,10 @@
 Pydantic schemas for request and response data models.
 """
 
+from __future__ import annotations
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class VoiceTranscribeResponse(BaseModel):
@@ -72,8 +73,7 @@ class ReminderResponse(BaseModel):
     recurrence_pattern: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AppItemCreate(BaseModel):
@@ -92,8 +92,7 @@ class AppItemResponse(BaseModel):
     is_custom: bool
     is_available: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SystemStatusResponse(BaseModel):

@@ -4,16 +4,18 @@ Supports pluggable engines: SpeechRecognition (Google/Whisper/Sphinx/Wav),
 OpenAI Whisper API, and Web Speech stream integration.
 """
 
+from __future__ import annotations
 import os
 import io
 import wave
 import tempfile
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any, List
 from pathlib import Path
 
 from backend.config.settings import settings
+
 
 logger = logging.getLogger(__name__)
 

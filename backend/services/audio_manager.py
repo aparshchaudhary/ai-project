@@ -7,6 +7,7 @@ Provides:
 - Speech-start and speech-end detection to avoid fixed delay recording.
 """
 
+from __future__ import annotations
 import os
 import io
 import time
@@ -16,6 +17,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     import sounddevice as sd
@@ -27,7 +30,6 @@ except Exception as _e:
 
 from backend.security.credential_store import private_config
 
-logger = logging.getLogger(__name__)
 
 
 
