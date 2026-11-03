@@ -212,6 +212,53 @@ export function App() {
           confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
         }
 
+        // Client-side Application Launching (enables real desktop apps to open even when connected to Render cloud)
+        if (res.intent === 'open_application' && res.success) {
+          const rawApp = (res.entities?.application || '').toLowerCase();
+          const protocol = res.data?.client_protocol;
+          const webFallback = res.data?.web_fallback;
+
+          try {
+            if (rawApp.includes('chrome') || rawApp.includes('browser')) {
+              window.open('https://www.google.com', '_blank');
+            } else if (rawApp.includes('calc')) {
+              const link = document.createElement('a');
+              link.href = 'calculator:';
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            } else if (rawApp.includes('whatsapp')) {
+              const link = document.createElement('a');
+              link.href = 'whatsapp:';
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            } else if (rawApp.includes('code') || rawApp.includes('vs')) {
+              const link = document.createElement('a');
+              link.href = 'vscode:';
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            } else if (rawApp.includes('spotify')) {
+              const link = document.createElement('a');
+              link.href = 'spotify:';
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            } else if (protocol) {
+              const link = document.createElement('a');
+              link.href = protocol;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            } else if (webFallback) {
+              window.open(webFallback, '_blank');
+            }
+          } catch (launchErr) {
+            console.debug('Client protocol launch notice:', launchErr);
+          }
+        }
+
         // Return to listening if continuous listening mode, else idle
         setTimeout(() => {
           setAssistantState((prev) => (prev === 'speaking' ? 'idle' : prev));

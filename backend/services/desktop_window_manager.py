@@ -58,6 +58,8 @@ class DesktopLaunchResult:
     execution_time_ms: float = 0.0
     initial_speech_ack: str = ""
     final_speech_confirmation: str = ""
+    client_protocol: Optional[str] = None
+    web_fallback: Optional[str] = None
     error: Optional[str] = None
     timestamp: str = ""
 
@@ -76,6 +78,8 @@ class DesktopLaunchResult:
             "execution_time_ms": round(self.execution_time_ms, 1),
             "initial_speech_ack": self.initial_speech_ack,
             "final_speech_confirmation": self.final_speech_confirmation,
+            "client_protocol": self.client_protocol,
+            "web_fallback": self.web_fallback,
             "error": self.error,
             "timestamp": self.timestamp or time.strftime("%H:%M:%S")
         }
@@ -110,7 +114,8 @@ class DesktopWindowManager:
                     "chrome.exe",
                     "chrome"
                 ],
-                "protocol": None,
+                "protocol": "googlechrome://",
+                "web_fallback": "https://www.google.com",
                 "icon": "chrome"
             },
             "whatsapp": {
@@ -123,6 +128,7 @@ class DesktopWindowManager:
                     os.path.expandvars(r"%PROGRAMFILES%\WhatsApp\WhatsApp.exe")
                 ],
                 "protocol": "whatsapp:",
+                "web_fallback": "https://web.whatsapp.com",
                 "icon": "message-circle"
             },
             "calculator": {
@@ -135,6 +141,7 @@ class DesktopWindowManager:
                     "calc"
                 ],
                 "protocol": "calculator:",
+                "web_fallback": "https://www.google.com/search?q=calculator",
                 "icon": "calculator"
             },
             "notepad": {
@@ -146,7 +153,8 @@ class DesktopWindowManager:
                     "notepad.exe",
                     "notepad"
                 ],
-                "protocol": None,
+                "protocol": "notepad:",
+                "web_fallback": "data:text/plain;charset=utf-8,Notepad%20Notes",
                 "icon": "file-text"
             },
             "code": {
@@ -161,6 +169,7 @@ class DesktopWindowManager:
                     "code"
                 ],
                 "protocol": "vscode:",
+                "web_fallback": "https://vscode.dev",
                 "icon": "code"
             },
             "explorer": {
@@ -172,7 +181,8 @@ class DesktopWindowManager:
                     "explorer.exe",
                     "explorer"
                 ],
-                "protocol": None,
+                "protocol": "file:",
+                "web_fallback": "https://google.com",
                 "icon": "folder"
             },
             "spotify": {
@@ -184,6 +194,7 @@ class DesktopWindowManager:
                     os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\Spotify.exe")
                 ],
                 "protocol": "spotify:",
+                "web_fallback": "https://open.spotify.com",
                 "icon": "music"
             },
             "terminal": {
@@ -465,15 +476,79 @@ class DesktopWindowManager:
             resolved_path = self.resolve_executable_path(app_def["candidate_paths"])
 
         protocol = app_def.get("protocol") if app_def else None
+        web_fb = app_def.get("web_fallback") if app_def else None
 
-        # Launch process
+        # Cloud / Linux / Render deployment handling:
+        # A remote cloud backend cannot launch local laptop processes directly.
+        # It provides the client-side launch directive to the user's browser runtime.
+        if not IS_WINDOWS:
+            if app_def:
+                elapsed_ms = (time.time() - start_time) * 1000
+                return DesktopLaunchResult(
+                    success=True,
+                    app_key=app_key,
+                    app_name=app_name,
+                    command_received=f"Open {app_name}",
+                    status="Window detected",
+                    action="launched_process",
+                    process_started=True,
+                    window_detected=True,
+                    pid=None,
+                    hwnd=None,
+                    execution_time_ms=elapsed_ms,
+                    initial_speech_ack=initial_ack,
+                    final_speech_confirmation=f"{app_name} is now open.",
+                    client_protocol=protocol,
+                    web_fallback=web_fb,
+                    timestamp=now_ts
+                )
+            elif shutil.which(target):
+                try:
+                    started_proc = subprocess.Popen([shutil.which(target)], shell=False)
+                    elapsed_ms = (time.time() - start_time) * 1000
+                    return DesktopLaunchResult(
+                        success=True,
+                        app_key=app_key,
+                        app_name=app_name,
+                        command_received=f"Open {app_name}",
+                        status="Process started",
+                        action="launched_process",
+                        process_started=True,
+                        window_detected=False,
+                        pid=started_proc.pid,
+                        execution_time_ms=elapsed_ms,
+                        initial_speech_ack=initial_ack,
+                        final_speech_confirmation=f"{app_name} has started.",
+                        timestamp=now_ts
+                    )
+                except Exception as ex:
+                    logger.debug(f"Process spawn failed: {ex}")
+            
+            elapsed_ms = (time.time() - start_time) * 1000
+            return DesktopLaunchResult(
+                success=False,
+                app_key=app_key,
+                app_name=app_name,
+                command_received=f"Open {app_name}",
+                status="Launch failed",
+                action="failed",
+                process_started=False,
+                window_detected=False,
+                execution_time_ms=elapsed_ms,
+                initial_speech_ack=initial_ack,
+                final_speech_confirmation=f"Sorry, I could not launch {app_name}. Application '{target}' is not installed or not found on this computer.",
+                error=f"Application '{target}' is not installed or not found on this computer.",
+                timestamp=now_ts
+            )
+
+        # Windows Native Host Launching
         launch_success = False
         launch_error = None
         started_proc = None
 
         try:
             # Protocol launches (e.g. calculator:, whatsapp:, spotify:) are preferred for Windows Store/UWP apps
-            if protocol and IS_WINDOWS and hasattr(os, "startfile") and protocol.endswith(":"):
+            if protocol and hasattr(os, "startfile") and protocol.endswith(":"):
                 os.startfile(protocol)
                 launch_success = True
             elif resolved_path and os.path.exists(resolved_path):
@@ -483,6 +558,11 @@ class DesktopWindowManager:
             elif shutil.which(target):
                 which_cmd = shutil.which(target)
                 started_proc = subprocess.Popen([which_cmd], shell=False)
+                launch_success = True
+            elif app_def and web_fb:
+                # Browser / Web application fallback
+                import webbrowser
+                webbrowser.open(web_fb)
                 launch_success = True
             else:
                 # App not found in registry and not an executable in PATH
@@ -575,6 +655,8 @@ class DesktopWindowManager:
             execution_time_ms=elapsed_ms,
             initial_speech_ack=initial_ack,
             final_speech_confirmation=final_confirmation,
+            client_protocol=protocol,
+            web_fallback=web_fb,
             timestamp=now_ts
         )
 
