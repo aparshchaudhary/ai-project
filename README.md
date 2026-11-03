@@ -8,6 +8,7 @@ Aura allows users to control their computer, launch and manage applications, sea
 
 ## 🚀 Latest Updates & Security Highlights
 
+- **Upgraded Conversational NLP Brain (v2.0.4)**: Patched Hindi/Hinglish verb-noun ordering for app launching and closing (*"chrome open karo"*, *"whatsapp band karo"*), added full bilingual social conversation engine (*"namaste"*, *"kaise ho"*, tech knowledge Q&A), and expanded intent detection across time, date, day, weather, and music controls.
 - **Fixed Critical Security Bugs**: Patched command injection flaws, secured spoken confirmation IDs against replay attacks, and fixed background audio thread overlap.
 - **Added Multilingual NLP**: Integrated voice command parsing for both English and Hindi/Hinglish (e.g., *"Chrome kholo"*, *"Take a screenshot"*).
 - **Upgraded Frontend UI**: Built a React + TypeScript + Tailwind CSS dark-mode interface featuring real-time audio waveforms and WebSocket streaming.
