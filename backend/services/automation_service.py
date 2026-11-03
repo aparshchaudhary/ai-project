@@ -18,6 +18,7 @@ from typing import Dict, Any, List, Optional, Tuple
 import psutil
 from backend.database.database import SessionLocal
 from backend.database.models import AppRegistry
+from backend.services.desktop_window_manager import desktop_window_manager, DesktopLaunchResult
 
 logger = logging.getLogger(__name__)
 
@@ -261,37 +262,17 @@ class AutomationService:
         finally:
             db.close()
 
-    def launch_app(self, target: str) -> Tuple[bool, str]:
+    def launch_app(self, target: str) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Launches desktop application using DesktopWindowManager.
+        Provides real application execution, window detection, and foreground activation.
+        Returns: (success, speech_message, activity_metadata)
+        """
         app = self.find_app(target)
-        if not app:
-            # Try fallback generic executable or start command
-            cleaned = target.replace(" ", "")
-            which_res = shutil.which(cleaned)
-            if which_res:
-                try:
-                    subprocess.Popen([which_res], shell=False)
-                    return True, f"Launching {target}."
-                except Exception as e:
-                    return False, f"Could not launch {target}: {str(e)}"
-            return False, f"I couldn't find '{target}' on this computer. You can add it in Settings."
+        custom_exec = app.exec_path if (app and app.is_custom) else None
 
-        exec_path = app.exec_path
-        try:
-            if exec_path.startswith("start "):
-                os.system(exec_path)
-                return True, f"Opening {app.display_name}."
-
-            resolved = self._resolve_executable([exec_path])
-            if resolved:
-                subprocess.Popen([resolved], shell=False)
-                return True, f"Opening {app.display_name}."
-            else:
-                # Try direct run
-                subprocess.Popen(exec_path, shell=True)
-                return True, f"Launching {app.display_name}."
-        except Exception as e:
-            logger.error(f"Error launching {app.display_name}: {e}")
-            return False, f"Failed to open {app.display_name}: {str(e)}"
+        result = desktop_window_manager.launch_or_activate(target, custom_path=custom_exec)
+        return result.success, result.final_speech_confirmation, result.to_dict()
 
     def close_app(self, target: str) -> Tuple[bool, str]:
         app = self.find_app(target)

@@ -5,9 +5,10 @@ interface UseWebSocketOptions {
   onStateChange?: (state: AssistantState) => void;
   onReminderAlert?: (data: { id: number; title: string; due_time: string }) => void;
   onCommandResult?: (data: any) => void;
+  onDesktopActivity?: (activity: any) => void;
 }
 
-export function useWebSocket({ onStateChange, onReminderAlert, onCommandResult }: UseWebSocketOptions = {}) {
+export function useWebSocket({ onStateChange, onReminderAlert, onCommandResult, onDesktopActivity }: UseWebSocketOptions = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<any>(null);
@@ -33,6 +34,8 @@ export function useWebSocket({ onStateChange, onReminderAlert, onCommandResult }
             onReminderAlert(data);
           } else if (data.type === 'command_result' && onCommandResult) {
             onCommandResult(data.result);
+          } else if (data.type === 'desktop_activity' && onDesktopActivity) {
+            onDesktopActivity(data.activity);
           }
         } catch (e) {
           console.error('Failed to parse WebSocket message', e);

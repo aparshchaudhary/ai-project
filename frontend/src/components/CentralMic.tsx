@@ -6,13 +6,17 @@ import {
   Volume2,
   ShieldAlert,
   Sparkles,
-  Cpu,
-  Globe,
   Square,
   Clock,
-  Settings2,
+  Radio,
+  Activity,
+  AlertCircle,
+  Repeat,
+  HandMetal,
 } from 'lucide-react';
 import { AssistantState, AudioDeviceItem, LatencyMetrics } from '../types';
+import { ListeningMode } from '../hooks/useVoiceRecognition';
+import { VoiceWaveform } from './VoiceWaveform';
 
 interface CentralMicProps {
   state: AssistantState;
@@ -20,13 +24,19 @@ interface CentralMicProps {
   onStopVoice?: () => void;
   transcript?: string;
   assistantName?: string;
-  micMode?: 'desktop' | 'browser';
-  onToggleMicMode?: (mode: 'desktop' | 'browser') => void;
   audioLevel?: number;
   devices?: AudioDeviceItem[];
   selectedDeviceId?: number | null;
   onSelectDevice?: (id: number) => void;
   latencyMetrics?: LatencyMetrics | null;
+  listeningMode?: ListeningMode;
+  onToggleListeningMode?: (mode: ListeningMode) => void;
+  listeningDuration?: number;
+  connectionStatus?: 'idle' | 'connecting' | 'connected' | 'listening' | 'error';
+  lastRecognizedCommand?: string;
+  errorMessage?: string | null;
+  micMode?: 'desktop' | 'browser';
+  onToggleMicMode?: (mode: 'desktop' | 'browser') => void;
 }
 
 export const CentralMic: React.FC<CentralMicProps> = ({
@@ -35,13 +45,19 @@ export const CentralMic: React.FC<CentralMicProps> = ({
   onStopVoice,
   transcript,
   assistantName = 'Aura',
-  micMode = 'desktop',
-  onToggleMicMode,
   audioLevel = 0,
   devices = [],
   selectedDeviceId = null,
   onSelectDevice,
   latencyMetrics = null,
+  listeningMode = 'push_to_talk',
+  onToggleListeningMode,
+  listeningDuration = 0,
+  connectionStatus = 'idle',
+  lastRecognizedCommand = '',
+  errorMessage = null,
+  micMode = 'browser',
+  onToggleMicMode,
 }) => {
   const getStatusColor = () => {
     switch (state) {
@@ -65,11 +81,11 @@ export const CentralMic: React.FC<CentralMicProps> = ({
   const getStatusText = () => {
     switch (state) {
       case 'listening':
-        return micMode === 'desktop'
-          ? 'Listening via Hardware Mic... (Adaptive VAD active)'
-          : 'Listening via Browser Speech...';
+        return listeningMode === 'continuous'
+          ? 'Continuous Listening Active — speak naturally...'
+          : 'Listening... (Speak your command)';
       case 'processing':
-        return 'Analyzing intent & entities...';
+        return 'Processing command & verifying...';
       case 'executing':
         return 'Executing task safely...';
       case 'speaking':
@@ -77,7 +93,7 @@ export const CentralMic: React.FC<CentralMicProps> = ({
       case 'waiting_confirmation':
         return 'Safety check: Confirmation required';
       case 'error':
-        return 'No speech detected or mic timeout. Tap to retry';
+        return errorMessage || 'Voice input notice. Click to retry';
       default:
         return `Click the microphone or press Space to speak`;
     }
@@ -101,46 +117,72 @@ export const CentralMic: React.FC<CentralMicProps> = ({
     }
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center my-4">
-      {/* Mic Mode Selector Pill */}
-      {onToggleMicMode && (
-        <div className="mb-3 inline-flex items-center gap-1.5 p-1 bg-slate-900/90 border border-slate-800 rounded-full text-xs shadow-inner">
-          <button
-            onClick={() => onToggleMicMode('desktop')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold transition ${micMode === 'desktop' ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            <span>Hardware Desktop Mic (Recommended)</span>
-          </button>
-          <button
-            onClick={() => onToggleMicMode('browser')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold transition ${micMode === 'browser' ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Browser Web Speech</span>
-          </button>
-        </div>
-      )}
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
 
-      {/* Microphone Hardware Device Selector Dropdown */}
-      {micMode === 'desktop' && devices.length > 0 && onSelectDevice && (
-        <div className="mb-4 flex items-center gap-2 max-w-md w-full px-4">
-          <Settings2 className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-          <select
-            value={selectedDeviceId ?? ''}
-            onChange={(e) => onSelectDevice(Number(e.target.value))}
-            className="flex-1 bg-slate-900/80 border border-slate-800 text-slate-300 text-xs rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-cyan-500 truncate"
-            title="Select audio hardware input device"
-          >
-            {devices.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} {d.is_default ? '(Default)' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+  return (
+    <div className="flex flex-col items-center justify-center my-4 w-full max-w-xl mx-auto">
+      {/* Interaction Mode Selector Pill (Push-to-Talk vs Continuous Listening) */}
+      <div className="mb-4 inline-flex items-center gap-1.5 p-1 bg-slate-900/90 border border-slate-800 rounded-full text-xs shadow-inner">
+        <button
+          type="button"
+          onClick={() => onToggleListeningMode && onToggleListeningMode('push_to_talk')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-semibold transition ${
+            listeningMode === 'push_to_talk'
+              ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <HandMetal className="w-3.5 h-3.5" />
+          <span>Push-to-Talk</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onToggleListeningMode && onToggleListeningMode('continuous')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-semibold transition ${
+            listeningMode === 'continuous'
+              ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Repeat className="w-3.5 h-3.5" />
+          <span>Continuous Listening</span>
+        </button>
+      </div>
+
+      {/* Connection & Live Hardware Status Indicator */}
+      <div className="mb-3 flex items-center justify-center gap-3 text-xs">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-slate-300">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              state === 'listening'
+                ? 'bg-emerald-400 animate-ping'
+                : state === 'speaking'
+                ? 'bg-cyan-400'
+                : 'bg-slate-500'
+            }`}
+          />
+          <Radio className="w-3 h-3 text-cyan-400" />
+          <span className="font-mono">
+            {state === 'listening'
+              ? 'Mic Stream: ACTIVE'
+              : state === 'speaking'
+              ? 'Audio Output: ACTIVE'
+              : 'Mic Stream: STANDBY'}
+          </span>
+        </span>
+
+        {/* Live Listening Stopwatch Timer */}
+        {state === 'listening' && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-cyan-950/60 border border-cyan-800/60 text-cyan-300 font-mono text-xs">
+            <Clock className="w-3 h-3 text-cyan-400 animate-spin" />
+            <span>{formatDuration(listeningDuration)}</span>
+          </span>
+        )}
+      </div>
 
       {/* Central Animated Mic Button */}
       <div className="relative flex items-center justify-center">
@@ -156,9 +198,16 @@ export const CentralMic: React.FC<CentralMicProps> = ({
         )}
 
         <button
+          type="button"
           onClick={state === 'speaking' && onStopVoice ? onStopVoice : onToggle}
           className={`group relative z-10 w-28 h-28 rounded-full bg-gradient-to-tr ${getStatusColor()} flex items-center justify-center shadow-xl ring-4 transition-all duration-300 hover:scale-105 active:scale-95`}
-          title={state === 'speaking' ? 'Click to stop speaking' : (state === 'listening' ? 'Listening...' : 'Click to start voice input')}
+          title={
+            state === 'speaking'
+              ? 'Click to stop speaking'
+              : state === 'listening'
+              ? 'Click to stop listening'
+              : 'Click to start voice input'
+          }
         >
           {state === 'speaking' ? (
             <Square className="w-10 h-10 text-white fill-white animate-pulse" />
@@ -168,15 +217,49 @@ export const CentralMic: React.FC<CentralMicProps> = ({
         </button>
       </div>
 
-      {/* Dynamic Status & Prompt */}
-      <div className="mt-4 text-center px-4">
+      {/* Audio Input Level Meter Bar */}
+      {state === 'listening' && (
+        <div className="mt-4 w-64 bg-slate-900/80 border border-slate-800 rounded-full p-1 shadow-inner">
+          <div className="flex items-center gap-2 px-2 text-[10px] text-slate-400 font-mono mb-0.5 justify-between">
+            <span className="flex items-center gap-1">
+              <Activity className="w-3 h-3 text-cyan-400" /> Input Level
+            </span>
+            <span className="text-cyan-300">{audioLevel}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 transition-all duration-75"
+              style={{ width: `${Math.max(5, audioLevel)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Waveform Canvas */}
+      <div className="w-full max-w-sm mt-3 px-4">
+        <VoiceWaveform state={state} audioLevel={audioLevel} className="w-full h-12" />
+      </div>
+
+      {/* Dynamic Status & Prompts */}
+      <div className="mt-2 text-center px-4">
         <div className="flex items-center justify-center gap-2">
           <span className="text-[11px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
             {state}
           </span>
 
+          {state === 'listening' && (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-900/60 text-rose-300 border border-rose-700 hover:bg-rose-800 transition"
+            >
+              <Square className="w-3 h-3 fill-rose-300" /> Stop Listening
+            </button>
+          )}
+
           {state === 'speaking' && onStopVoice && (
             <button
+              type="button"
               onClick={onStopVoice}
               className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-900/60 text-rose-300 border border-rose-700 hover:bg-rose-800 transition"
             >
@@ -189,6 +272,7 @@ export const CentralMic: React.FC<CentralMicProps> = ({
           {getStatusText()}
         </h3>
 
+        {/* Live Partial Speech Transcript */}
         {transcript && (
           <div className="mt-2.5 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-full inline-flex items-center gap-2 max-w-lg">
             <Sparkles className="w-4 h-4 text-blue-400 flex-shrink-0" />
@@ -198,7 +282,22 @@ export const CentralMic: React.FC<CentralMicProps> = ({
           </div>
         )}
 
-        {/* Real-time Measured Latency Breakdown */}
+        {/* Last Recognized Command */}
+        {lastRecognizedCommand && !transcript && (
+          <div className="mt-2 text-xs text-slate-400 font-mono">
+            Last heard: <span className="text-slate-200">"{lastRecognizedCommand}"</span>
+          </div>
+        )}
+
+        {/* Error notification banner */}
+        {errorMessage && (
+          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 bg-red-950/80 border border-red-800 rounded-lg text-xs text-red-300">
+            <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {/* Latency Breakdown */}
         {latencyMetrics && (
           <div className="mt-3 inline-flex items-center gap-3 px-3 py-1 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono text-slate-400">
             <span className="flex items-center gap-1">

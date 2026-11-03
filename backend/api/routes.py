@@ -390,8 +390,16 @@ async def add_application(item: AppItemCreate):
 
 @router.post("/apps/launch/{app_key}")
 async def launch_application_direct(app_key: str):
-    success, msg = automation_service.launch_app(app_key)
-    return {"success": success, "message": msg}
+    success, msg, data = automation_service.launch_app(app_key)
+    if data:
+        try:
+            await ws_manager.broadcast({
+                "type": "desktop_activity",
+                "activity": data
+            })
+        except Exception:
+            pass
+    return {"success": success, "message": msg, "data": data}
 
 
 @router.delete("/apps/{app_id}")

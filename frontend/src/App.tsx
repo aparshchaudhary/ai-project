@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
 
 import { Header } from './components/Header';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { DemoBar } from './components/DemoBar';
 import { ConfirmationModal } from './components/ConfirmationModal';
+import { DesktopActivityItem } from './components/DesktopActivityPanel';
 
 import { Dashboard } from './pages/Dashboard';
+import { DemonstrationPage } from './pages/DemonstrationPage';
 import { AssistantView } from './pages/AssistantView';
 import { HistoryPage } from './pages/HistoryPage';
 import { RemindersPage } from './pages/RemindersPage';
@@ -17,7 +19,7 @@ import { HelpPage } from './pages/HelpPage';
 import { DiagnosticsPage } from './pages/DiagnosticsPage';
 import { PermissionsPage } from './pages/PermissionsPage';
 
-import { useVoiceRecognition } from './hooks/useVoiceRecognition';
+import { useVoiceRecognition, ListeningMode } from './hooks/useVoiceRecognition';
 import { useWebSocket } from './hooks/useWebSocket';
 import { api } from './services/api';
 
@@ -39,12 +41,13 @@ export function App() {
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [conversationHistory, setConversationHistory] = useState<ConversationTurn[]>([]);
   const [lastResult, setLastResult] = useState<CommandExecutionResult | null>(null);
+  const [desktopActivities, setDesktopActivities] = useState<DesktopActivityItem[]>([]);
+  const [listeningMode, setListeningMode] = useState<ListeningMode>('push_to_talk');
 
   // Audio Hardware Devices & Latency metrics
   const [audioDevices, setAudioDevices] = useState<AudioDeviceItem[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<number | null>(null);
   const [latestMetrics, setLatestMetrics] = useState<LatencyMetrics | null>(null);
-
 
   // Settings
   const [settings, setSettings] = useState<AppSettings>({
@@ -143,7 +146,7 @@ export function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [assistantState, selectedDeviceId]);
+  }, [assistantState]);
 
   // Execute Command Pipeline
   const executeCommand = useCallback(
@@ -158,6 +161,26 @@ export function App() {
         });
 
         setLastResult(res);
+
+        // Record desktop application activity if present
+        if (res.data && res.data.app_name) {
+          const actItem: DesktopActivityItem = {
+            id: Math.random().toString(36).substring(2, 9),
+            app_key: res.data.app_key || res.data.app_name.toLowerCase(),
+            app_name: res.data.app_name,
+            command_received: res.data.command_received || commandText,
+            status: res.data.status || (res.data.window_detected ? 'Window detected' : 'Process started'),
+            action: res.data.action || 'launched_process',
+            process_started: res.data.process_started ?? true,
+            window_detected: res.data.window_detected ?? false,
+            pid: res.data.pid,
+            hwnd: res.data.hwnd,
+            execution_time_ms: res.data.execution_time_ms,
+            timestamp: res.data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            error: res.data.error,
+          };
+          setDesktopActivities((prev) => [actItem, ...prev]);
+        }
 
         if (res.requires_confirmation && res.confirmation_id) {
           setAssistantState('waiting_confirmation');
@@ -189,8 +212,10 @@ export function App() {
           confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
         }
 
-        // Return to idle after speech
-        setTimeout(() => setAssistantState('idle'), 2500);
+        // Return to listening if continuous listening mode, else idle
+        setTimeout(() => {
+          setAssistantState((prev) => (prev === 'speaking' ? 'idle' : prev));
+        }, 2500);
 
         // Refresh reminders or system if relevant
         if (['set_reminder', 'list_reminders'].includes(res.intent)) {
@@ -204,18 +229,23 @@ export function App() {
     [settings.demo_mode]
   );
 
-  // Handle Voice Recognition hook
+  // Upgraded Voice Recognition hook with persistent streaming & modes
   const {
     isListening,
     isProcessing: sttProcessing,
     transcript,
+    lastRecognizedCommand,
     audioLevel,
+    listeningDuration,
+    connectionStatus,
+    errorMessage,
     startListening,
     stopListening,
   } = useVoiceRecognition({
     wakeWord: settings.wake_word,
     wakeWordEnabled: settings.wake_word_enabled,
     language: settings.default_language,
+    mode: listeningMode,
     onCommandDetected: (text) => {
       executeCommand(text);
     },
@@ -226,9 +256,7 @@ export function App() {
     },
   });
 
-  const [micMode, setMicMode] = useState<'desktop' | 'browser'>('desktop');
-
-  // Keep assistantState in sync with listening
+  // Keep assistantState synchronized with listening status
   useEffect(() => {
     if (isListening) {
       setAssistantState('listening');
@@ -237,63 +265,21 @@ export function App() {
     }
   }, [isListening, sttProcessing]);
 
-  const handleToggleMic = async () => {
+  // Robust Voice Toggle
+  const handleToggleMic = () => {
     if (assistantState === 'speaking') {
       handleStopVoice();
       return;
     }
 
-    if (micMode === 'desktop') {
-      if (assistantState === 'listening') return;
-      setAssistantState('listening');
-      try {
-        const res = await api.listenDesktopMic({
-          duration: 4.0,
-          use_vad: true,
-          device_id: selectedDeviceId ?? undefined,
-          auto_execute: true,
-        });
-
-        if (res.metrics) {
-          setLatestMetrics(res.metrics);
-        }
-
-        if (res.success && res.text) {
-          if (res.execution) {
-            setLastResult(res.execution);
-            const newTurn: ConversationTurn = {
-              id: Math.random().toString(36).substring(2, 9),
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              user_text: res.text,
-              response_text: res.execution.response_text,
-              intent: res.execution.intent,
-              status: res.execution.status,
-              risk_level: res.execution.risk_level,
-            };
-            setConversationHistory((prev) => [newTurn, ...prev]);
-            setAssistantState('speaking');
-            setTimeout(() => setAssistantState('idle'), 2500);
-          } else {
-            executeCommand(res.text);
-          }
-        } else {
-          setAssistantState('error');
-          setTimeout(() => setAssistantState('idle'), 2500);
-        }
-      } catch (e) {
-        setAssistantState('error');
-        setTimeout(() => setAssistantState('idle'), 2500);
-      }
+    if (isListening) {
+      stopListening();
     } else {
-      if (isListening) {
-        stopListening();
-      } else {
-        startListening();
-      }
+      startListening();
     }
   };
 
-  // WebSocket hook for real-time states and reminders
+  // WebSocket hook for real-time state, reminders, and desktop activity
   useWebSocket({
     onStateChange: (state) => {
       setAssistantState(state);
@@ -304,6 +290,11 @@ export function App() {
     },
     onCommandResult: (res) => {
       setLastResult(res);
+    },
+    onDesktopActivity: (act) => {
+      if (act && act.app_name) {
+        setDesktopActivities((prev) => [act, ...prev]);
+      }
     },
   });
 
@@ -393,13 +384,41 @@ export function App() {
               reminders={reminders}
               onExecuteCommand={executeCommand}
               onSpeakText={handleSpeakText}
-              micMode={micMode}
-              onToggleMicMode={setMicMode}
               devices={audioDevices}
               selectedDeviceId={selectedDeviceId}
               onSelectDevice={handleSelectDevice}
               latencyMetrics={latestMetrics}
+              listeningMode={listeningMode}
+              onToggleListeningMode={setListeningMode}
+              listeningDuration={listeningDuration}
+              connectionStatus={connectionStatus}
+              lastRecognizedCommand={lastRecognizedCommand}
+              errorMessage={errorMessage}
+              desktopActivities={desktopActivities}
+              onClearActivities={() => setDesktopActivities([])}
             />
+          )}
+
+          {activeTab === 'demonstration' && (
+            <div className="p-6">
+              <DemonstrationPage
+                assistantState={assistantState}
+                onToggleMic={handleToggleMic}
+                onStopVoice={handleStopVoice}
+                transcript={transcript}
+                lastResult={lastResult}
+                onExecuteCommand={executeCommand}
+                audioLevel={audioLevel}
+                listeningMode={listeningMode}
+                onToggleListeningMode={setListeningMode}
+                listeningDuration={listeningDuration}
+                connectionStatus={connectionStatus}
+                lastRecognizedCommand={lastRecognizedCommand}
+                errorMessage={errorMessage}
+                desktopActivities={desktopActivities}
+                onClearActivities={() => setDesktopActivities([])}
+              />
+            </div>
           )}
 
           {activeTab === 'assistant' && (
@@ -412,8 +431,7 @@ export function App() {
               assistantName={settings.app_name}
               lastResult={lastResult}
               onSpeakText={handleSpeakText}
-              micMode={micMode}
-              onToggleMicMode={setMicMode}
+              micMode="browser"
               devices={audioDevices}
               selectedDeviceId={selectedDeviceId}
               onSelectDevice={handleSelectDevice}

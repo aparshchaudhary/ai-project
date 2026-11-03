@@ -8,6 +8,14 @@ Aura allows users to control their computer, launch and manage applications, sea
 
 ## 🚀 Latest Updates & Security Highlights
 
+- **Desktop Voice Assistant V2.1.0 (Critical Microphone Stability & Real OS Desktop Execution)**:
+  - **Persistent Microphone Streaming & Mode Switching**: Solved automatic ON/OFF mic cycling. Introduced explicit **Push-to-Talk** and **Continuous Listening** modes with persistent audio streams, real-time input level meter (0-100%), live stopwatch timer, and active hardware indicator.
+  - **Real Desktop Application Launching & Taskbar Integration**: Real Windows execution for Chrome, WhatsApp, Calculator, Notepad, VS Code, and Explorer. Uses Win32 APIs (`EnumDesktopWindows`, `SetForegroundWindow`, `ShowWindow`) and Windows Shell protocols to launch real applications with visible taskbar icons.
+  - **Already-Running Window Foreground Activation**: Prevents duplicate instances; automatically finds and restores the existing window to the foreground.
+  - **Verified Desktop Activity Panel**: Real-time dashboard tracker distinguishing **"Process started"** (verified via `psutil`) from **"Window detected"** (verified via top-level HWND), tracking execution duration in milliseconds.
+  - **Natural Conversational Execution Lifecycle**: Pre-execution spoken acknowledgment (*"Sure, opening Google Chrome."*) → process/window verification → post-execution spoken confirmation (*"Google Chrome is now open."*).
+  - **Presentation Demonstration Mode**: Teacher-ready demonstration interface featuring 8 one-click demo command chips, live intent classification card, voice response verification, and real-time desktop activity feed.
+  - **Command Deduplication**: Built-in 2.0-second voice echo deduplication preventing duplicate launches.
 - **Upgraded Conversational NLP Brain (v2.0.4)**: Patched Hindi/Hinglish verb-noun ordering for app launching and closing (*"chrome open karo"*, *"whatsapp band karo"*), added full bilingual social conversation engine (*"namaste"*, *"kaise ho"*, tech knowledge Q&A), and expanded intent detection across time, date, day, weather, and music controls.
 - **Fixed Critical Security Bugs**: Patched command injection flaws, secured spoken confirmation IDs against replay attacks, and fixed background audio thread overlap.
 - **Added Multilingual NLP**: Integrated voice command parsing for both English and Hindi/Hinglish (e.g., *"Chrome kholo"*, *"Take a screenshot"*).

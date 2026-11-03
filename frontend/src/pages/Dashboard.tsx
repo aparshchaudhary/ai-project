@@ -12,14 +12,12 @@ import {
   Battery,
   Send,
   Volume2,
-  CheckCircle,
-  AlertCircle,
-  ArrowRight,
   Sparkles,
 } from 'lucide-react';
 import { CentralMic } from '../components/CentralMic';
-import { VoiceWaveform } from '../components/VoiceWaveform';
+import { DesktopActivityPanel, DesktopActivityItem } from '../components/DesktopActivityPanel';
 import { AssistantState, ConversationTurn, SystemStatus, ReminderItem, AudioDeviceItem, LatencyMetrics } from '../types';
+import { ListeningMode } from '../hooks/useVoiceRecognition';
 
 interface DashboardProps {
   assistantState: AssistantState;
@@ -33,12 +31,18 @@ interface DashboardProps {
   reminders: ReminderItem[];
   onExecuteCommand: (text: string) => void;
   onSpeakText: (text: string) => void;
-  micMode?: 'desktop' | 'browser';
-  onToggleMicMode?: (mode: 'desktop' | 'browser') => void;
   devices?: AudioDeviceItem[];
   selectedDeviceId?: number | null;
   onSelectDevice?: (id: number) => void;
   latencyMetrics?: LatencyMetrics | null;
+  listeningMode?: ListeningMode;
+  onToggleListeningMode?: (mode: ListeningMode) => void;
+  listeningDuration?: number;
+  connectionStatus?: 'idle' | 'connecting' | 'connected' | 'listening' | 'error';
+  lastRecognizedCommand?: string;
+  errorMessage?: string | null;
+  desktopActivities?: DesktopActivityItem[];
+  onClearActivities?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -53,12 +57,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
   reminders,
   onExecuteCommand,
   onSpeakText,
-  micMode = 'desktop',
-  onToggleMicMode,
   devices = [],
   selectedDeviceId = null,
   onSelectDevice,
   latencyMetrics = null,
+  listeningMode = 'push_to_talk',
+  onToggleListeningMode,
+  listeningDuration = 0,
+  connectionStatus = 'idle',
+  lastRecognizedCommand = '',
+  errorMessage = null,
+  desktopActivities = [],
+  onClearActivities,
 }) => {
   const [textInput, setTextInput] = useState('');
 
@@ -94,19 +104,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onStopVoice={onStopVoice}
             transcript={transcript}
             assistantName={assistantName}
-            micMode={micMode}
-            onToggleMicMode={onToggleMicMode}
             audioLevel={audioLevel}
             devices={devices}
             selectedDeviceId={selectedDeviceId}
             onSelectDevice={onSelectDevice}
             latencyMetrics={latencyMetrics}
-          />
-
-          <VoiceWaveform
-            state={assistantState}
-            audioLevel={audioLevel}
-            className="my-3"
+            listeningMode={listeningMode}
+            onToggleListeningMode={onToggleListeningMode}
+            listeningDuration={listeningDuration}
+            connectionStatus={connectionStatus}
+            lastRecognizedCommand={lastRecognizedCommand}
+            errorMessage={errorMessage}
           />
 
           {/* Quick Hybrid Text Input Box */}
@@ -116,7 +124,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 type="text"
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
-                placeholder="Or type a command... (e.g. 'Open VS Code', 'What is the date?')"
+                placeholder="Or type a command... (e.g. 'Open Chrome', 'Open Calculator', 'What is the date?')"
                 className="w-full px-5 py-3 rounded-2xl bg-slate-800/80 border border-slate-700/80 text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition shadow-inner"
               />
             </div>
@@ -128,6 +136,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <Send className="w-5 h-5" />
             </button>
           </form>
+        </div>
+      </div>
+
+      {/* Live Desktop Activity Panel */}
+      <DesktopActivityPanel
+        activities={desktopActivities}
+        onClearActivities={onClearActivities}
+      />
+
+      {/* Quick Action Pills Grid */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+          Quick Application & System Actions
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
+          {quickActions.map((action, idx) => {
+            const Icon = action.icon;
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => onExecuteCommand(action.command)}
+                className={`p-3 rounded-2xl border border-slate-800/80 bg-slate-900/60 transition flex flex-col items-center text-center gap-2 group ${action.color}`}
+              >
+                <div className="p-2.5 rounded-xl bg-slate-800/80 group-hover:scale-110 transition-transform">
+                  <Icon className="w-4 h-4" />
+                </div>
+                <span className="text-[11px] font-semibold text-slate-300 group-hover:text-white truncate w-full">
+                  {action.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -189,6 +230,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => onSpeakText(turn.response_text)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
                       title="Replay Voice Audio"
@@ -249,66 +291,46 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {/* Battery */}
                 <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/50">
                   <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                    <span className="flex items-center gap-1"><Battery className="w-3.5 h-3.5 text-emerald-400" /> Power</span>
+                    <span className="flex items-center gap-1"><Battery className="w-3.5 h-3.5 text-emerald-400" /> Battery</span>
                     <span className="font-semibold text-white">
                       {systemStatus.battery_percent !== null ? `${systemStatus.battery_percent}%` : 'AC Power'}
                     </span>
                   </div>
                   <div className="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${systemStatus.battery_percent || 100}%` }} />
+                    <div
+                      className="bg-emerald-500 h-full rounded-full"
+                      style={{ width: `${Math.min(100, systemStatus.battery_percent || 100)}%` }}
+                    />
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Quick Actions Panel */}
-          <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
-            <h3 className="text-sm font-bold text-slate-100">
-              Quick Voice Automation
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {quickActions.map((action, i) => {
-                const Icon = action.icon;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => onExecuteCommand(action.command)}
-                    className={`flex items-center gap-2 p-2.5 rounded-xl border border-slate-800 text-xs font-medium text-slate-300 transition active:scale-95 text-left ${action.color}`}
-                  >
-                    <Icon className="w-4 h-4 flex-shrink-0" />
-                    <span className="truncate">{action.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Active Reminders Glance */}
+          {/* Pending Reminders Widget */}
           <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <Bell className="w-4 h-4 text-pink-400" />
-                Upcoming Reminders
+                Active Reminders
               </h3>
-              <span className="text-xs text-slate-400">{reminders.length}</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono">
+                {reminders.length}
+              </span>
             </div>
 
             {reminders.length === 0 ? (
-              <p className="text-xs text-slate-500">No scheduled reminders.</p>
+              <p className="text-xs text-slate-500 py-3 text-center">
+                No upcoming reminders. Say <span className="text-blue-400 font-medium">"Remind me to drink water at 4 PM"</span>
+              </p>
             ) : (
               <div className="space-y-2">
                 {reminders.slice(0, 3).map((r) => (
-                  <div key={r.id} className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50 flex items-center justify-between text-xs">
-                    <div className="truncate pr-2">
-                      <p className="font-medium text-slate-200 truncate">{r.title}</p>
-                      <p className="text-[11px] text-slate-400">
-                        {new Date(r.due_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
+                  <div key={r.id} className="p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/40 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-200">{r.title}</p>
+                      <p className="text-[10px] text-slate-400">{r.due_time}</p>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full bg-pink-500/10 text-pink-300 text-[10px] font-bold">
-                      Active
-                    </span>
                   </div>
                 ))}
               </div>

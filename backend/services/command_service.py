@@ -26,11 +26,25 @@ from backend.services.clipboard_service import clipboard_service
 from backend.services.weather_service import weather_service
 from backend.services.music_service import music_service
 from backend.services.tts_service import tts_service
+from backend.services.desktop_window_manager import desktop_window_manager
 
 logger = logging.getLogger(__name__)
 
 
 class CommandService:
+    def __init__(self):
+        self._recent_commands: Dict[str, float] = {}
+
+    def _is_duplicate_command(self, text: str) -> bool:
+        """Deduplicates rapid repeated voice triggers within 2 seconds."""
+        cleaned = text.strip().lower()
+        now = time.time()
+        self._recent_commands = {k: v for k, v in self._recent_commands.items() if now - v < 10.0}
+        if cleaned in self._recent_commands:
+            if now - self._recent_commands[cleaned] < 2.0:
+                return True
+        self._recent_commands[cleaned] = now
+        return False
     async def process_command(
         self,
         text: str,
@@ -44,6 +58,20 @@ class CommandService:
         # Handle direct confirmation response if provided
         if confirmation_id:
             return await self.confirm_and_execute(confirmation_id, approved=(confirmed is True), session_id=session_id)
+
+        # Drop immediate duplicate voice echo within 2 seconds
+        if self._is_duplicate_command(text):
+            logger.info(f"Duplicate command dropped within window: '{text}'")
+            return CommandExecutionResponse(
+                success=True,
+                intent="duplicate_ignored",
+                status="success",
+                response_text="Already processed that command.",
+                entities={},
+                risk_level="none",
+                requires_confirmation=False,
+                execution_time_ms=(time.time() - start_time) * 1000
+            )
 
         # 1. Natural Language Intent Parsing & Entity Extraction
         intent_res = nlp_service.parse_intent(text, session_id=session_id)
@@ -197,8 +225,31 @@ class CommandService:
         # 1. Applications
         if intent == "open_application":
             app = entities.get("application", "")
-            success, msg = automation_service.launch_app(app)
-            return success, msg, None
+            app_def = desktop_window_manager.get_app_definition(app)
+            disp_name = app_def["display_name"] if app_def else app.capitalize()
+
+            # Natural pre-launch acknowledgment
+            initial_ack = f"Sure, opening {disp_name}."
+            try:
+                await tts_service.speak(initial_ack)
+            except Exception:
+                pass
+
+            # Real desktop application launch with process & window verification
+            success, msg, data = automation_service.launch_app(app)
+
+            # Broadcast desktop activity over WebSocket to live dashboard panel
+            if data:
+                try:
+                    from backend.api.websocket import ws_manager
+                    await ws_manager.broadcast({
+                        "type": "desktop_activity",
+                        "activity": data
+                    })
+                except Exception as ws_err:
+                    logger.debug(f"WS activity broadcast error: {ws_err}")
+
+            return success, msg, data
 
         elif intent == "close_application":
             app = entities.get("application", "")

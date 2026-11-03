@@ -9,10 +9,12 @@ import {
   HelpCircle,
   Activity,
   Shield,
+  Award,
 } from 'lucide-react';
 
 export type NavTab =
   | 'dashboard'
+  | 'demonstration'
   | 'assistant'
   | 'diagnostics'
   | 'permissions'
@@ -36,6 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'demonstration', label: 'Demo Mode', icon: Award, badge: 'Live V2' },
     { id: 'assistant', label: 'Live Assistant', icon: Mic, badge: 'Voice' },
     { id: 'diagnostics', label: 'Diagnostics', icon: Activity, badge: 'Hardware' },
     { id: 'permissions', label: 'Security & Sandbox', icon: Shield },
