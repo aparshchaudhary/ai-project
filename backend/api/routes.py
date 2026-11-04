@@ -40,6 +40,10 @@ from backend.services.reminder_service import reminder_service
 from backend.services.automation_service import automation_service
 from backend.services.analytics_service import analytics_service
 from backend.services.audio_manager import audio_manager
+from backend.services.task_planner import task_planner
+from backend.services.task_scheduler import task_scheduler
+from backend.services.contact_service import contact_service
+from backend.models.task_planner_schemas import TaskPlan, ContactSchema
 from backend.security.credential_store import private_config, WindowsDPAPI
 from backend.security.permissions import permission_manager, PermissionScope
 from backend.api.websocket import ws_manager
@@ -760,5 +764,114 @@ async def run_diagnostics():
         "timestamp": datetime.now().isoformat(),
         "total_latency_ms": total_diag_lat,
         "components": results
+    }
+
+
+# ==========================================
+# 11. AI Agent Mode & Multi-Command Endpoints
+# ==========================================
+
+class AgentPlanRequest(BaseModel):
+    text: str
+
+
+class AgentExecuteRequest(BaseModel):
+    plan_id: Optional[str] = None
+    text: Optional[str] = None
+    auto_confirm: bool = False
+
+
+class AgentConfirmRequest(BaseModel):
+    plan_id: str
+    confirmation_id: Optional[str] = None
+    approved: bool = True
+
+
+class ContactCreateRequest(BaseModel):
+    name: str
+    phone: str
+    relationship: Optional[str] = None
+    email: Optional[str] = None
+
+
+@router.post("/agent/plan")
+async def create_agent_plan(req: AgentPlanRequest):
+    """
+    Parses a single or multi-command voice instruction into a structured execution DAG plan.
+    """
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="Instruction text cannot be empty.")
+    plan = task_planner.plan_instruction(req.text)
+    await task_scheduler.broadcast_plan_update(plan)
+    return plan.to_dict()
+
+
+@router.post("/agent/execute")
+async def execute_agent_plan(req: AgentExecuteRequest):
+    """
+    Executes a structured task plan or directly plans and runs an instruction.
+    """
+    if req.plan_id and req.plan_id in task_scheduler._active_plans:
+        plan = task_scheduler._active_plans[req.plan_id]
+    elif req.text:
+        plan = task_planner.plan_instruction(req.text)
+    else:
+        raise HTTPException(status_code=400, detail="Must supply either 'plan_id' or 'text'.")
+
+    executed = await task_scheduler.execute_plan(plan, auto_confirm=req.auto_confirm)
+    return executed.to_dict()
+
+
+@router.post("/agent/confirm")
+async def confirm_agent_plan(req: AgentConfirmRequest):
+    """
+    Approves or cancels a pending high-risk action in an agent plan.
+    """
+    if req.approved:
+        resumed = task_scheduler.confirm_and_resume_plan(req.plan_id, req.confirmation_id)
+        if not resumed:
+            raise HTTPException(status_code=404, detail="Active plan not found or already completed.")
+        executed = await task_scheduler.execute_plan(resumed, auto_confirm=True)
+        return executed.to_dict()
+    else:
+        cancelled = task_scheduler.cancel_plan(req.plan_id)
+        if not cancelled:
+            raise HTTPException(status_code=404, detail="Active plan not found.")
+        return cancelled.to_dict()
+
+
+# ==========================================
+# 12. Contact Book & Resolution Endpoints
+# ==========================================
+
+@router.get("/contacts")
+def list_contacts():
+    """Lists all contacts from the contact book."""
+    return contact_service.list_contacts()
+
+
+@router.post("/contacts")
+def save_contact(req: ContactCreateRequest):
+    """Creates or updates a contact."""
+    return contact_service.add_contact(
+        name=req.name,
+        phone=req.phone,
+        relationship=req.relationship,
+        email=req.email
+    )
+
+
+@router.get("/contacts/resolve")
+def resolve_contact_query(q: str = Query(..., description="Name or relationship query")):
+    """
+    Resolves a spoken name query and flags potential ambiguities.
+    """
+    matched, candidates = contact_service.resolve_contact(q)
+    return {
+        "query": q,
+        "matched": matched,
+        "ambiguous": len(candidates) > 1,
+        "candidates": candidates,
+        "count": len(candidates)
     }
 

@@ -8,6 +8,16 @@ Aura allows users to control their computer, launch and manage applications, sea
 
 ## 🚀 Latest Updates & Security Highlights
 
+- **Desktop Voice Assistant V2.2.0 (Multi-Command Execution, AI Agent Mode & Cross-Application Automation)**:
+  - **Multi-Intent Recognition Engine**: Parses complex compound instructions in English, Hindi, and Hinglish (e.g., *"Open Google Chrome and search for Artificial Intelligence, then open WhatsApp and send Hi to Ram"*, *"Chrome kholo aur AI ke baare mein search karo"*, *"Open Chrome and WhatsApp simultaneously"*).
+  - **Intelligent Task Planner & Dependency DAG**: Automatically breaks instructions into structured Pydantic `TaskPlan` pipelines. Assigns explicit execution dependencies (`depends_on`), preventing arbitrary shell execution and maintaining deterministic safety.
+  - **Concurrent Multitasking Engine (Task Scheduler)**: `asyncio` DAG runner that executes independent tasks in parallel (`asyncio.gather`), executes dependent tasks sequentially upon prerequisite completion, isolates failures (so independent tasks succeed even if one step fails), and uses an `asyncio.Lock` for Windows GUI window focus activation.
+  - **Google Chrome Web Search Automation**: Complete browser workflow verifying process status, launching or restoring foreground window, navigating to Google/YouTube/News, and extracting live AI summaries when requested.
+  - **WhatsApp Desktop & Web Automation**: Contact lookup with fuzzy and relationship matching (*"Mom"*, *"Dad"*), ambiguity detection (prompts user to pick if multiple matching contacts exist), and mandatory user confirmation gating before dispatching messages.
+  - **Live Task Execution Dashboard ("AI Agent Activity")**: Real-time WebSocket step tracker displaying Step ID, Name, App, Status (*Pending, Planning, Running, Waiting for Confirmation, Completed, Failed, Cancelled, Skipped*), execution duration in ms, retry controls, and interactive ambiguity selection chips.
+  - **Contextual Conversational Follow-ups**: Remembers previous turn context to handle follow-up queries (*"Now search deep learning"*, contact index selection *"[1] Ram Sharma"*).
+  - **100% Test Coverage**: Full suite of 49 automated unit and integration tests passing.
+
 - **Desktop Voice Assistant V2.1.0 (Critical Microphone Stability & Real OS Desktop Execution)**:
   - **Persistent Microphone Streaming & Mode Switching**: Solved automatic ON/OFF mic cycling. Introduced explicit **Push-to-Talk** and **Continuous Listening** modes with persistent audio streams, real-time input level meter (0-100%), live stopwatch timer, and active hardware indicator.
   - **Real Desktop Application Launching & Taskbar Integration**: Real Windows execution for Chrome, WhatsApp, Calculator, Notepad, VS Code, and Explorer. Uses Win32 APIs (`EnumDesktopWindows`, `SetForegroundWindow`, `ShowWindow`) and Windows Shell protocols to launch real applications with visible taskbar icons.

@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 import { CentralMic } from '../components/CentralMic';
 import { DesktopActivityPanel, DesktopActivityItem } from '../components/DesktopActivityPanel';
-import { AssistantState, ConversationTurn, SystemStatus, ReminderItem, AudioDeviceItem, LatencyMetrics } from '../types';
+import { AiAgentActivityPanel } from '../components/AiAgentActivityPanel';
+import { AssistantState, ConversationTurn, SystemStatus, ReminderItem, AudioDeviceItem, LatencyMetrics, AgentTaskPlan, ContactItem } from '../types';
 import { ListeningMode } from '../hooks/useVoiceRecognition';
 
 interface DashboardProps {
@@ -43,6 +44,11 @@ interface DashboardProps {
   errorMessage?: string | null;
   desktopActivities?: DesktopActivityItem[];
   onClearActivities?: () => void;
+  activePlan?: AgentTaskPlan | null;
+  onConfirmPlan?: (planId: string, confirmationId?: string) => void;
+  onCancelPlan?: (planId: string) => void;
+  onRetryTask?: (taskId: string) => void;
+  onSelectContact?: (contact: ContactItem) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -69,6 +75,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   errorMessage = null,
   desktopActivities = [],
   onClearActivities,
+  activePlan = null,
+  onConfirmPlan,
+  onCancelPlan,
+  onRetryTask,
+  onSelectContact,
 }) => {
   const [textInput, setTextInput] = useState('');
 
@@ -171,6 +182,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
           })}
         </div>
       </div>
+
+      {/* AI Agent Multi-Command DAG Execution Panel */}
+      <AiAgentActivityPanel
+        plan={activePlan}
+        onConfirmPlan={onConfirmPlan}
+        onCancelPlan={onCancelPlan}
+        onRetryTask={onRetryTask}
+        onSelectContact={onSelectContact}
+        onRunSampleCommand={onExecuteCommand}
+      />
 
       {/* Main Grid: Live Conversation & System / Reminders */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

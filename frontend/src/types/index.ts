@@ -224,3 +224,57 @@ export interface DiagnosticsResult {
   };
 }
 
+export type AgentTaskStatus =
+  | 'Pending'
+  | 'Planning'
+  | 'Running'
+  | 'Waiting for Confirmation'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled'
+  | 'Skipped';
+
+export interface AgentTaskItem {
+  id: string;
+  title: string;
+  intent: string;
+  application?: string;
+  query?: string;
+  engine?: string;
+  contact?: string;
+  message?: string;
+  phone?: string;
+  url?: string;
+  summarize?: boolean;
+  depends_on: string[];
+  requires_confirmation: boolean;
+  risk_level: string;
+  status: AgentTaskStatus;
+  start_time?: number;
+  execution_time_ms?: number;
+  result?: string;
+  error?: string;
+  data?: Record<string, any>;
+}
+
+export interface AgentTaskPlan {
+  plan_id: string;
+  original_instruction: string;
+  tasks: AgentTaskItem[];
+  status: string;
+  created_at: number;
+  summary?: string;
+  requires_confirmation: boolean;
+  confirmation_id?: string;
+  ambiguous_contacts?: ContactItem[];
+}
+
+export interface ContactItem {
+  id?: number;
+  name: string;
+  phone: string;
+  relationship?: string;
+  email?: string;
+}
+
+

@@ -33,6 +33,8 @@ import {
   AppSettings,
   AudioDeviceItem,
   LatencyMetrics,
+  AgentTaskPlan,
+  ContactItem,
 } from './types';
 
 export function App() {
@@ -45,6 +47,7 @@ export function App() {
   const [desktopActivities, setDesktopActivities] = useState<DesktopActivityItem[]>([]);
   const [listeningMode, setListeningMode] = useState<ListeningMode>('push_to_talk');
   const [launchNotification, setLaunchNotification] = useState<LaunchNotificationData | null>(null);
+  const [activePlan, setActivePlan] = useState<AgentTaskPlan | null>(null);
 
   // Audio Hardware Devices & Latency metrics
   const [audioDevices, setAudioDevices] = useState<AudioDeviceItem[]>([]);
@@ -210,8 +213,13 @@ export function App() {
         setConversationHistory((prev) => [newTurn, ...prev]);
         setAssistantState('speaking');
 
-        if (res.success && ['take_screenshot', 'open_application', 'create_folder'].includes(res.intent)) {
+        if (res.success && ['take_screenshot', 'open_application', 'create_folder', 'multi_command_plan'].includes(res.intent)) {
           confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
+        }
+
+        // If response is a multi-command task plan, update activePlan
+        if (res.intent === 'multi_command_plan' && res.data) {
+          setActivePlan(res.data as AgentTaskPlan);
         }
 
         // Application Launch Confirmation Popup Notification Toast
@@ -351,7 +359,7 @@ export function App() {
     }
   };
 
-  // WebSocket hook for real-time state, reminders, and desktop activity
+  // WebSocket hook for real-time state, reminders, desktop activity, and AI Agent progress
   useWebSocket({
     onStateChange: (state) => {
       setAssistantState(state);
@@ -368,7 +376,51 @@ export function App() {
         setDesktopActivities((prev) => [act, ...prev]);
       }
     },
+    onAiAgentActivity: (plan) => {
+      setActivePlan(plan);
+    },
+    onAgentTaskProgress: (data) => {
+      setActivePlan((prev) => {
+        if (!prev || prev.plan_id !== data.plan_id) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks.map((t) => (t.id === data.task.id ? data.task : t)),
+        };
+      });
+    },
   });
+
+  const handleConfirmPlan = async (planId: string, confirmationId?: string) => {
+    try {
+      const res = await api.confirmAgentPlan({ plan_id: planId, confirmation_id: confirmationId, approved: true });
+      if (res) {
+        setActivePlan(res);
+      }
+    } catch (e) {
+      console.error('Error confirming plan:', e);
+    }
+  };
+
+  const handleCancelPlan = async (planId: string) => {
+    try {
+      const res = await api.confirmAgentPlan({ plan_id: planId, approved: false });
+      if (res) {
+        setActivePlan(res);
+      }
+    } catch (e) {
+      console.error('Error cancelling plan:', e);
+    }
+  };
+
+  const handleSelectContact = (contact: ContactItem) => {
+    executeCommand(contact.name);
+  };
+
+  const handleRetryTask = (taskId: string) => {
+    if (activePlan) {
+      executeCommand(activePlan.original_instruction);
+    }
+  };
 
   // Confirmation handlers
   const handleConfirmAction = async (approved: boolean) => {
@@ -468,6 +520,11 @@ export function App() {
               errorMessage={errorMessage}
               desktopActivities={desktopActivities}
               onClearActivities={() => setDesktopActivities([])}
+              activePlan={activePlan}
+              onConfirmPlan={handleConfirmPlan}
+              onCancelPlan={handleCancelPlan}
+              onRetryTask={handleRetryTask}
+              onSelectContact={handleSelectContact}
             />
           )}
 
@@ -489,6 +546,11 @@ export function App() {
                 errorMessage={errorMessage}
                 desktopActivities={desktopActivities}
                 onClearActivities={() => setDesktopActivities([])}
+                activePlan={activePlan}
+                onConfirmPlan={handleConfirmPlan}
+                onCancelPlan={handleCancelPlan}
+                onRetryTask={handleRetryTask}
+                onSelectContact={handleSelectContact}
               />
             </div>
           )}

@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { AssistantState } from '../types';
+import { AssistantState, AgentTaskPlan, AgentTaskItem } from '../types';
 
 interface UseWebSocketOptions {
   onStateChange?: (state: AssistantState) => void;
   onReminderAlert?: (data: { id: number; title: string; due_time: string }) => void;
   onCommandResult?: (data: any) => void;
   onDesktopActivity?: (activity: any) => void;
+  onAiAgentActivity?: (plan: AgentTaskPlan) => void;
+  onAgentTaskProgress?: (data: { plan_id: string; task: AgentTaskItem }) => void;
 }
 
-export function useWebSocket({ onStateChange, onReminderAlert, onCommandResult, onDesktopActivity }: UseWebSocketOptions = {}) {
+export function useWebSocket({
+  onStateChange,
+  onReminderAlert,
+  onCommandResult,
+  onDesktopActivity,
+  onAiAgentActivity,
+  onAgentTaskProgress
+}: UseWebSocketOptions = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<any>(null);
@@ -36,6 +45,10 @@ export function useWebSocket({ onStateChange, onReminderAlert, onCommandResult, 
             onCommandResult(data.result);
           } else if (data.type === 'desktop_activity' && onDesktopActivity) {
             onDesktopActivity(data.activity);
+          } else if (data.type === 'ai_agent_activity' && onAiAgentActivity && data.plan) {
+            onAiAgentActivity(data.plan);
+          } else if (data.type === 'agent_task_progress' && onAgentTaskProgress && data.task) {
+            onAgentTaskProgress(data);
           }
         } catch (e) {
           console.error('Failed to parse WebSocket message', e);
@@ -55,7 +68,7 @@ export function useWebSocket({ onStateChange, onReminderAlert, onCommandResult, 
     } catch (e) {
       reconnectTimeoutRef.current = setTimeout(connect, 3000);
     }
-  }, [onCommandResult, onReminderAlert, onStateChange]);
+  }, [onCommandResult, onReminderAlert, onStateChange, onDesktopActivity, onAiAgentActivity, onAgentTaskProgress]);
 
   useEffect(() => {
     connect();

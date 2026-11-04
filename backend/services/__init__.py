@@ -12,6 +12,12 @@ from .weather_service import weather_service
 from .music_service import music_service
 from .analytics_service import analytics_service
 from .command_service import command_service
+from .desktop_window_manager import desktop_window_manager
+from .contact_service import contact_service
+from .whatsapp_service import whatsapp_service
+from .browser_automation_service import browser_automation_service
+from .task_planner import task_planner
+from .task_scheduler import task_scheduler
 
 __all__ = [
     "speech_service",
@@ -28,4 +34,10 @@ __all__ = [
     "music_service",
     "analytics_service",
     "command_service",
+    "desktop_window_manager",
+    "contact_service",
+    "whatsapp_service",
+    "browser_automation_service",
+    "task_planner",
+    "task_scheduler",
 ]

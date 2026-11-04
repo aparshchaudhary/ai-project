@@ -58,3 +58,14 @@ class AppSetting(Base):
     value_json = Column(Text, nullable=False)
     description = Column(String(255), nullable=True)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class Contact(Base):
+    __tablename__ = "contacts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    phone = Column(String(50), nullable=False)
+    email = Column(String(100), nullable=True)
+    relationship = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=utc_now)

@@ -421,6 +421,16 @@ class DesktopWindowManager:
             except Exception:
                 return False
 
+    def focus_process_window(self, process_or_app: str) -> bool:
+        """Finds and brings window for an app/process to the foreground."""
+        app_def = self.get_app_definition(process_or_app)
+        proc_names = app_def["process_names"] if app_def else [process_or_app]
+        keywords = app_def["window_keywords"] if app_def else [process_or_app.replace(".exe", "")]
+        win_info = self.find_window_for_app(proc_names, keywords)
+        if win_info:
+            return self.activate_window(win_info[0])
+        return False
+
     def launch_or_activate(self, target: str, custom_path: Optional[str] = None) -> DesktopLaunchResult:
         """
         Executes the full desktop application launch lifecycle:

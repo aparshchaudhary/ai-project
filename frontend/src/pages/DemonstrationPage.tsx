@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 import { CentralMic } from '../components/CentralMic';
 import { DesktopActivityPanel, DesktopActivityItem } from '../components/DesktopActivityPanel';
-import { AssistantState, CommandExecutionResult } from '../types';
+import { AiAgentActivityPanel } from '../components/AiAgentActivityPanel';
+import { AssistantState, CommandExecutionResult, AgentTaskPlan, ContactItem } from '../types';
 import { ListeningMode } from '../hooks/useVoiceRecognition';
 
 interface DemonstrationPageProps {
@@ -34,6 +35,11 @@ interface DemonstrationPageProps {
   errorMessage?: string | null;
   desktopActivities: DesktopActivityItem[];
   onClearActivities?: () => void;
+  activePlan?: AgentTaskPlan | null;
+  onConfirmPlan?: (planId: string, confirmationId?: string) => void;
+  onCancelPlan?: (planId: string) => void;
+  onRetryTask?: (taskId: string) => void;
+  onSelectContact?: (contact: ContactItem) => void;
 }
 
 export const DemonstrationPage: React.FC<DemonstrationPageProps> = ({
@@ -52,6 +58,11 @@ export const DemonstrationPage: React.FC<DemonstrationPageProps> = ({
   errorMessage = null,
   desktopActivities,
   onClearActivities,
+  activePlan = null,
+  onConfirmPlan,
+  onCancelPlan,
+  onRetryTask,
+  onSelectContact,
 }) => {
   const [selectedDemoCommand, setSelectedDemoCommand] = useState<string | null>(null);
 
@@ -162,6 +173,16 @@ export const DemonstrationPage: React.FC<DemonstrationPageProps> = ({
           ))}
         </div>
       </div>
+
+      {/* AI Agent Multi-Command DAG Execution Activity */}
+      <AiAgentActivityPanel
+        plan={activePlan}
+        onConfirmPlan={onConfirmPlan}
+        onCancelPlan={onCancelPlan}
+        onRetryTask={onRetryTask}
+        onSelectContact={onSelectContact}
+        onRunSampleCommand={onExecuteCommand}
+      />
 
       {/* Two-Column Execution Lifecycle Inspection Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

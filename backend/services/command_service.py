@@ -27,6 +27,11 @@ from backend.services.weather_service import weather_service
 from backend.services.music_service import music_service
 from backend.services.tts_service import tts_service
 from backend.services.desktop_window_manager import desktop_window_manager
+from backend.services.task_planner import task_planner
+from backend.services.task_scheduler import task_scheduler
+from backend.services.contact_service import contact_service
+from backend.services.whatsapp_service import whatsapp_service
+from backend.services.browser_automation_service import browser_automation_service
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +76,81 @@ class CommandService:
                 risk_level="none",
                 requires_confirmation=False,
                 execution_time_ms=(time.time() - start_time) * 1000
+            )
+
+        # Check if input is a multi-command instruction or active agent follow-up
+        is_ambiguity_followup = bool(task_planner.conversation_context.get("awaiting_ambiguity"))
+        is_now_followup = bool(task_planner.conversation_context.get("last_query") and text.lower().strip().startswith("now "))
+        if task_planner.is_multi_command(text) or is_ambiguity_followup or is_now_followup:
+            plan = task_planner.plan_instruction(text)
+            await task_scheduler.broadcast_plan_update(plan)
+
+            if plan.requires_confirmation:
+                prompt_msg = ""
+                if plan.ambiguous_contacts:
+                    names_str = " or ".join([c["name"] for c in plan.ambiguous_contacts])
+                    prompt_msg = f"I found {len(plan.ambiguous_contacts)} contacts named {text}: {names_str}. Which one would you like to message?"
+                else:
+                    for t in plan.tasks:
+                        if t.intent == "send_message":
+                            prompt_msg = f"You want to send '{t.message}' to {t.contact} ({t.phone}). Shall I send it?"
+                            break
+                    if not prompt_msg:
+                        prompt_msg = f"Please confirm you want to proceed with: {plan.summary or text}."
+
+                history_id = self._log_history(
+                    command_text=text,
+                    intent="multi_command_plan",
+                    entities={"plan_id": plan.plan_id, "tasks_count": len(plan.tasks)},
+                    status="pending_confirmation",
+                    risk_level="medium",
+                    response_text=prompt_msg,
+                    execution_time_ms=(time.time() - start_time) * 1000
+                )
+
+                await tts_service.speak(prompt_msg)
+
+                return CommandExecutionResponse(
+                    success=True,
+                    intent="multi_command_plan",
+                    status="pending_confirmation",
+                    response_text=prompt_msg,
+                    entities={"plan_id": plan.plan_id, "tasks": [t.to_dict() for t in plan.tasks]},
+                    risk_level="medium",
+                    requires_confirmation=True,
+                    confirmation_id=plan.confirmation_id,
+                    execution_time_ms=(time.time() - start_time) * 1000,
+                    history_id=history_id,
+                    data=plan.to_dict()
+                )
+
+            # Direct execution of plan without pending confirmation
+            executed_plan = await task_scheduler.execute_plan(plan)
+            summary_msg = executed_plan.summary or "All tasks executed successfully."
+
+            history_id = self._log_history(
+                command_text=text,
+                intent="multi_command_plan",
+                entities={"plan_id": executed_plan.plan_id, "tasks_count": len(executed_plan.tasks)},
+                status="success" if executed_plan.status == "completed" else "partially_failed",
+                risk_level="low",
+                response_text=summary_msg,
+                execution_time_ms=(time.time() - start_time) * 1000
+            )
+
+            await tts_service.speak(summary_msg)
+
+            return CommandExecutionResponse(
+                success=(executed_plan.status == "completed"),
+                intent="multi_command_plan",
+                status="success" if executed_plan.status == "completed" else "partially_failed",
+                response_text=summary_msg,
+                entities={"plan_id": executed_plan.plan_id},
+                risk_level="low",
+                requires_confirmation=False,
+                execution_time_ms=(time.time() - start_time) * 1000,
+                history_id=history_id,
+                data=executed_plan.to_dict()
             )
 
         # 1. Natural Language Intent Parsing & Entity Extraction
@@ -157,6 +237,43 @@ class CommandService:
 
     async def confirm_and_execute(self, confirmation_id: str, approved: bool, session_id: str = "default") -> CommandExecutionResponse:
         start_time = time.time()
+
+        # Check if confirmation belongs to a multi-command task plan
+        if task_planner.pending_confirmation_plan and task_planner.pending_confirmation_plan.confirmation_id == confirmation_id:
+            pending_plan = task_planner.pending_confirmation_plan
+            if not approved:
+                task_scheduler.cancel_plan(pending_plan.plan_id)
+                task_planner.pending_confirmation_plan = None
+                cancel_msg = "Execution plan cancelled by user."
+                await tts_service.speak(cancel_msg)
+                return CommandExecutionResponse(
+                    success=True,
+                    intent="plan_cancelled",
+                    status="denied",
+                    response_text=cancel_msg,
+                    risk_level="medium",
+                    requires_confirmation=False,
+                    execution_time_ms=(time.time() - start_time) * 1000
+                )
+
+            # Approved! Resume and execute
+            resumed = task_scheduler.confirm_and_resume_plan(pending_plan.plan_id, confirmation_id)
+            if resumed:
+                executed_plan = await task_scheduler.execute_plan(resumed, auto_confirm=True)
+                task_planner.pending_confirmation_plan = None
+                summary_msg = executed_plan.summary or "All tasks executed successfully."
+                await tts_service.speak(summary_msg)
+                return CommandExecutionResponse(
+                    success=(executed_plan.status == "completed"),
+                    intent="multi_command_plan",
+                    status="success" if executed_plan.status == "completed" else "partially_failed",
+                    response_text=summary_msg,
+                    risk_level="medium",
+                    requires_confirmation=False,
+                    execution_time_ms=(time.time() - start_time) * 1000,
+                    data=executed_plan.to_dict()
+                )
+
         if not approved:
             security_service.cancel_confirmation(confirmation_id)
             cancel_msg = "Action cancelled."
@@ -256,17 +373,33 @@ class CommandService:
             success, msg = automation_service.close_app(app)
             return success, msg, None
 
-        # 2. Web Automation
+        # 2. Web Automation & Browser Search
         elif intent == "search_web":
             query = entities.get("query", "")
             engine = entities.get("engine", "google")
-            success, msg = automation_service.search_web(query, engine)
-            return success, msg, None
+            summarize = entities.get("summarize", False)
+            res = browser_automation_service.execute_search(query, engine, summarize)
+            return res.get("success", True), res.get("message", f"Searched for {query}"), res
 
         elif intent == "open_website":
             url = entities.get("url", "https://google.com")
             success, msg = automation_service.open_website(url)
             return success, msg, None
+
+        # 2b. Messaging & WhatsApp
+        elif intent == "send_message":
+            contact = entities.get("contact", "")
+            message = entities.get("message", "Hi")
+            phone = entities.get("phone")
+            if not phone:
+                matched, _ = contact_service.resolve_contact(contact)
+                if matched:
+                    phone = matched["phone"]
+                    contact = matched["name"]
+            if phone:
+                success, msg, data = whatsapp_service.dispatch_message(phone, message, contact)
+                return success, msg, data
+            return False, f"Could not find contact '{contact}'.", None
 
         # 3. Screenshot
         elif intent == "take_screenshot":

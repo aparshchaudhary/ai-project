@@ -299,5 +299,59 @@ export const api = {
     if (!res.ok) throw new Error('Failed to run diagnostics');
     return res.json();
   },
+
+  // AI Agent & Multi-Command Execution
+  async createAgentPlan(text: string): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/agent/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error('Failed to create agent task plan');
+    return res.json();
+  },
+
+  async executeAgentPlan(params: { plan_id?: string; text?: string; auto_confirm?: boolean }): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/agent/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) throw new Error('Failed to execute agent plan');
+    return res.json();
+  },
+
+  async confirmAgentPlan(params: { plan_id: string; confirmation_id?: string; approved: boolean }): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/agent/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) throw new Error('Failed to confirm agent plan');
+    return res.json();
+  },
+
+  // Contact Book
+  async getContacts(): Promise<any[]> {
+    const res = await fetch(`${BASE_URL}/api/contacts`);
+    if (!res.ok) throw new Error('Failed to fetch contacts');
+    return res.json();
+  },
+
+  async saveContact(contact: { name: string; phone: string; relationship?: string; email?: string }): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/contacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(contact),
+    });
+    if (!res.ok) throw new Error('Failed to save contact');
+    return res.json();
+  },
+
+  async resolveContact(q: string): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/contacts/resolve?q=${encodeURIComponent(q)}`);
+    if (!res.ok) throw new Error('Failed to resolve contact query');
+    return res.json();
+  },
 };
 
