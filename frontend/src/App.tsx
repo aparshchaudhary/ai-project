@@ -6,6 +6,7 @@ import { Sidebar, NavTab } from './components/Sidebar';
 import { DemoBar } from './components/DemoBar';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { DesktopActivityItem } from './components/DesktopActivityPanel';
+import { LaunchNotificationPopup, LaunchNotificationData } from './components/LaunchNotificationPopup';
 
 import { Dashboard } from './pages/Dashboard';
 import { DemonstrationPage } from './pages/DemonstrationPage';
@@ -43,6 +44,7 @@ export function App() {
   const [lastResult, setLastResult] = useState<CommandExecutionResult | null>(null);
   const [desktopActivities, setDesktopActivities] = useState<DesktopActivityItem[]>([]);
   const [listeningMode, setListeningMode] = useState<ListeningMode>('push_to_talk');
+  const [launchNotification, setLaunchNotification] = useState<LaunchNotificationData | null>(null);
 
   // Audio Hardware Devices & Latency metrics
   const [audioDevices, setAudioDevices] = useState<AudioDeviceItem[]>([]);
@@ -210,6 +212,29 @@ export function App() {
 
         if (res.success && ['take_screenshot', 'open_application', 'create_folder'].includes(res.intent)) {
           confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
+        }
+
+        // Application Launch Confirmation Popup Notification Toast
+        if (res.intent === 'open_application') {
+          const rawApp = (res.entities?.application || '').toLowerCase();
+          const appDisplayName = res.data?.app_name || (rawApp ? rawApp.charAt(0).toUpperCase() + rawApp.slice(1) : 'Application');
+          const isSuccess = res.success;
+          const statusStr = res.data?.status || (isSuccess ? 'Window detected' : 'Launch failed');
+          const execTime = res.data?.execution_time_ms ?? res.execution_time_ms;
+          const errorMsg = res.data?.error || (!isSuccess ? res.response_text : null);
+
+          setLaunchNotification({
+            isOpen: true,
+            appName: appDisplayName,
+            message: isSuccess ? `${appDisplayName} successfully opened.` : `Failed to launch ${appDisplayName}.`,
+            status: statusStr,
+            executionTimeMs: execTime,
+            isSuccess: isSuccess,
+            error: errorMsg,
+            protocol: res.data?.client_protocol,
+            webFallback: res.data?.web_fallback,
+            rawApp: rawApp,
+          });
         }
 
         // Client-side Application Launching (enables real desktop apps to open even when connected to Render cloud)
@@ -521,6 +546,13 @@ export function App() {
         riskLevel={confirmationState.riskLevel}
         onConfirm={() => handleConfirmAction(true)}
         onCancel={() => handleConfirmAction(false)}
+      />
+
+      {/* Application Launch Confirmation Popup Notification Toast */}
+      <LaunchNotificationPopup
+        notification={launchNotification}
+        onClose={() => setLaunchNotification(null)}
+        onRetry={(name) => executeCommand(`Open ${name}`)}
       />
     </div>
   );
