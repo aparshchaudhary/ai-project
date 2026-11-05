@@ -29,9 +29,14 @@ logger = logging.getLogger(__name__)
 
 class TaskScheduler:
     def __init__(self):
-        # Mutex lock to serialize Windows foreground activations across concurrent workers
-        self._gui_lock = asyncio.Lock()
+        # Mutex lock to serialize Windows foreground activations across concurrent workers (lazy initialized)
+        self._gui_lock: Optional[asyncio.Lock] = None
         self._active_plans: Dict[str, TaskPlan] = {}
+
+    def _get_gui_lock(self) -> asyncio.Lock:
+        if self._gui_lock is None:
+            self._gui_lock = asyncio.Lock()
+        return self._gui_lock
 
     async def broadcast_plan_update(self, plan: TaskPlan, event_type: str = "ai_agent_activity"):
         """Broadcasts live plan and task progress to all connected WebSocket clients."""
@@ -180,7 +185,7 @@ class TaskScheduler:
     async def _execute_open_app(self, task: TaskItem):
         """Executes application launch with GUI foreground lock."""
         app = task.application or "chrome"
-        async with self._gui_lock:
+        async with self._get_gui_lock():
             # Run in threadpool so blocking Win32 / subprocess calls don't pause the event loop
             res = await asyncio.to_thread(desktop_window_manager.launch_or_activate, app)
 
@@ -192,7 +197,17 @@ class TaskScheduler:
             task.data = res.to_dict()
         else:
             task.status = TaskStatus.FAILED
-            task.error = res.error_details or f"Could not launch application '{app}'."
+            task.error = res.error or f"Could not launch application '{app}'."
+
+        # Broadcast live desktop activity to live dashboard panel
+        try:
+            from backend.api.websocket import ws_manager
+            await ws_manager.broadcast({
+                "type": "desktop_activity",
+                "activity": res.to_dict()
+            })
+        except Exception as ws_err:
+            logger.debug(f"WS desktop activity broadcast error: {ws_err}")
 
     async def _execute_search_web(self, task: TaskItem):
         """Executes browser search workflow."""
@@ -200,7 +215,7 @@ class TaskScheduler:
         engine = task.engine or "google"
         summarize = bool(task.summarize)
 
-        async with self._gui_lock:
+        async with self._get_gui_lock():
             res = await asyncio.to_thread(
                 browser_automation_service.execute_search,
                 query=query,

@@ -243,15 +243,28 @@ class DesktopWindowManager:
             "google chrome": "chrome",
             "chrome browser": "chrome",
             "browser": "chrome",
+            "browsre": "chrome",
+            "brower": "chrome",
+            "borwser": "chrome",
+            "web browser": "chrome",
+            "chorme": "chrome",
+            "crome": "chrome",
             "whatsapp desktop": "whatsapp",
             "whats app": "whatsapp",
             "wa": "whatsapp",
+            "whatsap": "whatsapp",
+            "whatsaap": "whatsapp",
+            "watsapp": "whatsapp",
             "vs code": "code",
             "vscode": "code",
             "visual studio code": "code",
             "calc": "calculator",
+            "calculater": "calculator",
+            "calcualtor": "calculator",
             "hisaab": "calculator",
             "notes": "notepad",
+            "notepd": "notepad",
+            "notpad": "notepad",
             "text editor": "notepad",
             "files": "explorer",
             "my computer": "explorer",
@@ -265,6 +278,16 @@ class DesktopWindowManager:
         if target_clean in alias_map:
             key = alias_map[target_clean]
             return self._app_definitions.get(key)
+
+        # Fuzzy match for typos
+        import difflib
+        all_candidates = list(self._app_definitions.keys()) + list(alias_map.keys())
+        matches = difflib.get_close_matches(target_clean, all_candidates, n=1, cutoff=0.72)
+        if matches:
+            best_match = matches[0]
+            resolved_key = alias_map.get(best_match, best_match)
+            if resolved_key in self._app_definitions:
+                return self._app_definitions[resolved_key]
 
         # Partial substring match
         for key, defn in self._app_definitions.items():
@@ -556,32 +579,53 @@ class DesktopWindowManager:
         launch_error = None
         started_proc = None
 
-        try:
-            # Protocol launches (e.g. calculator:, whatsapp:, spotify:) are preferred for Windows Store/UWP apps
-            if protocol and hasattr(os, "startfile") and protocol.endswith(":"):
-                os.startfile(protocol)
-                launch_success = True
-            elif resolved_path and os.path.exists(resolved_path):
-                # Standard Win32 executable launch
+        # 1. Direct resolved executable launch (most reliable Win32 path)
+        if resolved_path and os.path.exists(resolved_path):
+            try:
                 started_proc = subprocess.Popen([resolved_path], shell=False)
                 launch_success = True
-            elif shutil.which(target):
-                which_cmd = shutil.which(target)
-                started_proc = subprocess.Popen([which_cmd], shell=False)
-                launch_success = True
-            elif app_def and web_fb:
-                # Browser / Web application fallback
+            except Exception as e:
+                logger.debug(f"Direct executable launch failed for {resolved_path}: {e}")
+
+        # 2. Executable in system PATH (e.g. calc.exe, notepad.exe, code.exe)
+        if not launch_success:
+            which_cmd = shutil.which(target)
+            if which_cmd:
+                try:
+                    started_proc = subprocess.Popen([which_cmd], shell=False)
+                    launch_success = True
+                except Exception as e:
+                    logger.debug(f"PATH executable launch failed for {which_cmd}: {e}")
+
+        # 3. Protocol URI launch (e.g. calculator:, whatsapp:, spotify:, vscode:)
+        if not launch_success and protocol:
+            try:
+                if hasattr(os, "startfile"):
+                    os.startfile(protocol)
+                    launch_success = True
+                else:
+                    subprocess.Popen(["cmd", "/c", "start", protocol], shell=False)
+                    launch_success = True
+            except Exception as e:
+                logger.debug(f"Protocol launch failed for {protocol}: {e}")
+                try:
+                    # Windows shell fallback for protocol URI
+                    subprocess.Popen(["cmd", "/c", "start", protocol], shell=False)
+                    launch_success = True
+                except Exception as ex_cmd:
+                    logger.debug(f"cmd start protocol failed: {ex_cmd}")
+
+        # 4. Web fallback if supported
+        if not launch_success and app_def and web_fb:
+            try:
                 import webbrowser
                 webbrowser.open(web_fb)
                 launch_success = True
-            else:
-                # App not found in registry and not an executable in PATH
-                launch_success = False
-                launch_error = f"Application '{target}' is not installed or not found on this computer."
-        except Exception as e:
-            logger.error(f"Error launching {app_name}: {e}")
-            launch_error = str(e)
-            launch_success = False
+            except Exception as e:
+                logger.debug(f"Web fallback failed for {web_fb}: {e}")
+
+        if not launch_success:
+            launch_error = f"Application '{target}' is not installed or not found on this computer."
 
         if not launch_success:
             elapsed_ms = (time.time() - start_time) * 1000

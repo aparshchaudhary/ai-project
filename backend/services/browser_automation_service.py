@@ -69,10 +69,23 @@ class BrowserAutomationService:
         if target not in ["chrome", "msedge", "firefox", "browser"]:
             target = "chrome"
 
+        # If already running, focus window and return immediately without re-launch delay
+        if target in ["chrome", "browser"] and self.is_chrome_running():
+            if IS_WINDOWS:
+                desktop_window_manager.focus_process_window("chrome.exe")
+            return {
+                "browser": target,
+                "success": True,
+                "already_running": True,
+                "window_focused": True,
+                "process_verified": True,
+                "message": f"Browser '{target}' is ready."
+            }
+
         res = desktop_window_manager.launch_or_activate(target)
         # Give browser a short moment to establish GUI window if freshly spawned
         time.sleep(0.3)
-        running = self.is_chrome_running() if target == "chrome" else res.success
+        running = self.is_chrome_running() if target in ["chrome", "browser"] else res.success
 
         already_running = (res.action == "brought_to_foreground" or res.status == "Already running")
         window_focused = res.window_detected
@@ -127,15 +140,18 @@ class BrowserAutomationService:
         # Step 3: Open in browser
         nav_success = False
         try:
-            # Attempt to use Chrome specifically if available
-            if self._chrome_exec and os.path.exists(self._chrome_exec):
+            # On Windows, os.startfile directly asks the OS Shell to open the URL in the default browser/Chrome
+            if IS_WINDOWS and hasattr(os, "startfile"):
+                os.startfile(target_url)
+                nav_success = True
+            elif self._chrome_exec and os.path.exists(self._chrome_exec):
                 import subprocess
                 subprocess.Popen([self._chrome_exec, target_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 nav_success = True
             else:
                 nav_success = webbrowser.open(target_url)
         except Exception as e:
-            logger.warning(f"Error opening URL via executable: {e}, falling back to webbrowser: {e}")
+            logger.warning(f"Error opening URL via startfile/executable: {e}, falling back to webbrowser: {e}")
             nav_success = webbrowser.open(target_url)
 
         # Give browser time to display and bring to foreground

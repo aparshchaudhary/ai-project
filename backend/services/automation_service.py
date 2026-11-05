@@ -269,7 +269,9 @@ class AutomationService:
         Returns: (success, speech_message, activity_metadata)
         """
         app = self.find_app(target)
-        custom_exec = app.exec_path if (app and app.is_custom) else None
+        custom_exec = app.exec_path if (app and app.exec_path and os.path.exists(app.exec_path)) else None
+        if not custom_exec and app and app.is_custom:
+            custom_exec = app.exec_path
 
         result = desktop_window_manager.launch_or_activate(target, custom_path=custom_exec)
         return result.success, result.final_speech_confirmation, result.to_dict()

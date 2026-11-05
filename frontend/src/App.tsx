@@ -222,14 +222,20 @@ export function App() {
           setActivePlan(res.data as AgentTaskPlan);
         }
 
-        // Application Launch Confirmation Popup Notification Toast
-        if (res.intent === 'open_application') {
-          const rawApp = (res.entities?.application || '').toLowerCase();
-          const appDisplayName = res.data?.app_name || (rawApp ? rawApp.charAt(0).toUpperCase() + rawApp.slice(1) : 'Application');
-          const isSuccess = res.success;
-          const statusStr = res.data?.status || (isSuccess ? 'Window detected' : 'Launch failed');
-          const execTime = res.data?.execution_time_ms ?? res.execution_time_ms;
-          const errorMsg = res.data?.error || (!isSuccess ? res.response_text : null);
+        // Application Launch Confirmation Popup Notification Toast (Single or Multi-Command)
+        const appTask = res.intent === 'multi_command_plan' && res.data?.tasks
+          ? res.data.tasks.find((t: any) => t.intent === 'open_application')
+          : null;
+
+        if (res.intent === 'open_application' || appTask) {
+          const rawApp = (appTask?.application || res.entities?.application || appTask?.data?.app_key || res.data?.app_key || '').toLowerCase();
+          const appDisplayName = appTask?.data?.app_name || res.data?.app_name || (rawApp ? rawApp.charAt(0).toUpperCase() + rawApp.slice(1) : 'Application');
+          const isSuccess = appTask ? (appTask.status === 'completed' || appTask.data?.success) : res.success;
+          const statusStr = (appTask ? appTask.data?.status : res.data?.status) || (isSuccess ? 'Window detected' : 'Launch failed');
+          const execTime = (appTask ? appTask.data?.execution_time_ms : (res.data?.execution_time_ms ?? res.execution_time_ms)) || 0;
+          const errorMsg = (appTask ? (appTask.error || appTask.data?.error) : (res.data?.error || (!isSuccess ? res.response_text : null)));
+          const protocol = appTask ? appTask.data?.client_protocol : res.data?.client_protocol;
+          const webFallback = appTask ? appTask.data?.web_fallback : res.data?.web_fallback;
 
           setLaunchNotification({
             isOpen: true,
@@ -237,23 +243,46 @@ export function App() {
             message: isSuccess ? `${appDisplayName} successfully opened.` : `Failed to launch ${appDisplayName}.`,
             status: statusStr,
             executionTimeMs: execTime,
-            isSuccess: isSuccess,
+            isSuccess: !!isSuccess,
             error: errorMsg,
-            protocol: res.data?.client_protocol,
-            webFallback: res.data?.web_fallback,
+            protocol: protocol,
+            webFallback: webFallback,
             rawApp: rawApp,
           });
         }
 
+        // Search Web Automation: Trigger browser search tab (Single or Multi-Command)
+        const searchTask = res.intent === 'multi_command_plan' && res.data?.tasks
+          ? res.data.tasks.find((t: any) => t.intent === 'search_web')
+          : null;
+
+        if (searchTask && (searchTask.status === 'completed' || searchTask.data?.success)) {
+          const searchUrl = searchTask.data?.url || `https://www.google.com/search?q=${encodeURIComponent(searchTask.query || '')}`;
+          try {
+            window.open(searchUrl, '_blank');
+          } catch (launchErr) {
+            console.debug('Search web popup open notice:', launchErr);
+          }
+        } else if (res.intent === 'search_web' && res.success) {
+          const searchUrl = res.data?.url || `https://www.google.com/search?q=${encodeURIComponent(res.entities?.query || '')}`;
+          try {
+            window.open(searchUrl, '_blank');
+          } catch (launchErr) {
+            console.debug('Search web popup open notice:', launchErr);
+          }
+        }
+
         // Client-side Application Launching (enables real desktop apps to open even when connected to Render cloud)
-        if (res.intent === 'open_application' && res.success) {
-          const rawApp = (res.entities?.application || '').toLowerCase();
-          const protocol = res.data?.client_protocol;
-          const webFallback = res.data?.web_fallback;
+        if ((res.intent === 'open_application' || appTask) && (res.success || appTask?.status === 'completed')) {
+          const rawApp = (appTask?.application || res.entities?.application || appTask?.data?.app_key || res.data?.app_key || '').toLowerCase();
+          const protocol = appTask ? appTask.data?.client_protocol : res.data?.client_protocol;
+          const webFallback = appTask ? appTask.data?.web_fallback : res.data?.web_fallback;
 
           try {
             if (rawApp.includes('chrome') || rawApp.includes('browser')) {
-              window.open('https://www.google.com', '_blank');
+              if (!searchTask) {
+                window.open('https://www.google.com', '_blank');
+              }
             } else if (rawApp.includes('calc')) {
               const link = document.createElement('a');
               link.href = 'calculator:';

@@ -277,3 +277,37 @@ class TestAgentRestApiEndpoints:
         res4_data = res4.json()
         assert res4_data["ambiguous"] is True
         assert res4_data["count"] >= 2
+
+    def test_open_browsre_typo_and_search_ai(self):
+        instruction = "open browsre and search ai"
+        assert task_planner.is_multi_command(instruction) is True
+        plan = task_planner.plan_instruction(instruction)
+        assert len(plan.tasks) == 2
+        assert plan.tasks[0].intent == "open_application"
+        assert plan.tasks[0].application == "chrome"
+        assert plan.tasks[1].intent == "search_web"
+        assert plan.tasks[1].query.lower() == "ai"
+
+    def test_open_chrome_an_search_what_is_ai(self):
+        instruction = "Open Chrome an search what is ai"
+        assert task_planner.is_multi_command(instruction) is True
+        plan = task_planner.plan_instruction(instruction)
+        assert len(plan.tasks) == 2
+        assert plan.tasks[0].intent == "open_application"
+        assert plan.tasks[0].application == "chrome"
+        assert plan.tasks[1].intent == "search_web"
+        assert "what is ai" in plan.tasks[1].query.lower()
+
+    def test_calculator_executable_fallback_when_protocol_denied(self):
+        from backend.services.desktop_window_manager import DesktopWindowManager
+        dwm = DesktopWindowManager()
+        # Mock os.startfile to raise PermissionError, verifying subprocess.Popen fallback runs
+        with patch("os.startfile", side_effect=PermissionError("Access is denied")):
+            with patch("subprocess.Popen") as mock_popen:
+                mock_proc = MagicMock()
+                mock_proc.pid = 9999
+                mock_proc.poll.return_value = None
+                mock_popen.return_value = mock_proc
+                res = dwm.launch_or_activate("calculator")
+                assert res.success is True
+                assert res.status in ["Process started", "Window detected", "Already running"]

@@ -26,9 +26,18 @@ APP_CANONICAL_MAP = {
     "google chrome": "chrome",
     "chrome browser": "chrome",
     "browser": "chrome",
+    "browsre": "chrome",
+    "brower": "chrome",
+    "borwser": "chrome",
+    "web browser": "chrome",
+    "chorme": "chrome",
+    "crome": "chrome",
     "whatsapp": "whatsapp",
     "whatsapp desktop": "whatsapp",
     "wa": "whatsapp",
+    "whatsap": "whatsapp",
+    "whatsaap": "whatsapp",
+    "watsapp": "whatsapp",
     "edge": "msedge",
     "ms edge": "msedge",
     "microsoft edge": "msedge",
@@ -38,8 +47,12 @@ APP_CANONICAL_MAP = {
     "code": "code",
     "visual studio code": "code",
     "notepad": "notepad",
+    "notepd": "notepad",
+    "notpad": "notepad",
     "calculator": "calculator",
     "calc": "calculator",
+    "calculater": "calculator",
+    "calcualtor": "calculator",
     "hisaab": "calculator",
     "explorer": "explorer",
     "file explorer": "explorer",
@@ -49,6 +62,7 @@ APP_CANONICAL_MAP = {
     "powershell": "terminal",
     "command prompt": "terminal",
     "spotify": "spotify",
+    "spotfy": "spotify",
     "music": "spotify",
     "discord": "discord",
     "task manager": "taskmgr",
@@ -231,9 +245,23 @@ class TaskPlanner:
 
     def _identify_app(self, text: str) -> Optional[str]:
         clean = text.lower().strip()
+        # 1. Exact or substring match in canonical map
         for alias, canonical in APP_CANONICAL_MAP.items():
             if re.search(rf"\b{re.escape(alias)}\b", clean):
                 return canonical
+
+        # 2. Fuzzy match against canonical names and aliases (handles typos like 'browsre', 'chorme')
+        import difflib
+        tokens = clean.split()
+        for tok in tokens:
+            matches = difflib.get_close_matches(tok, APP_CANONICAL_MAP.keys(), n=1, cutoff=0.72)
+            if matches:
+                return APP_CANONICAL_MAP[matches[0]]
+
+        matches = difflib.get_close_matches(clean, APP_CANONICAL_MAP.keys(), n=1, cutoff=0.72)
+        if matches:
+            return APP_CANONICAL_MAP[matches[0]]
+
         return None
 
     def plan_instruction(self, text: str) -> TaskPlan:

@@ -626,18 +626,26 @@ class NLPService:
             if app_sub:
                 clean = app_sub.group(1).strip()
             else:
-                for k in ["chrome", "whatsapp", "notepad", "calculator", "explorer", "spotify", "code"]:
+                for k in ["chrome", "whatsapp", "notepad", "calculator", "explorer", "spotify", "code", "browser", "browsre"]:
                     if k in clean:
-                        return k
+                        return "chrome" if ("brows" in k or "chrom" in k) else k
                 return ""
 
         mapping = {
             "whatsapp": "whatsapp",
             "whats app": "whatsapp",
             "wa": "whatsapp",
+            "whatsap": "whatsapp",
+            "whatsaap": "whatsapp",
+            "watsapp": "whatsapp",
             "chrome": "chrome",
             "google chrome": "chrome",
             "browser": "chrome",
+            "browsre": "chrome",
+            "brower": "chrome",
+            "borwser": "chrome",
+            "chorme": "chrome",
+            "crome": "chrome",
             "edge": "msedge",
             "microsoft edge": "msedge",
             "msedge": "msedge",
@@ -648,8 +656,12 @@ class NLPService:
             "visual studio code": "code",
             "code": "code",
             "notepad": "notepad",
+            "notepd": "notepad",
+            "notpad": "notepad",
             "calc": "calculator",
             "calculator": "calculator",
+            "calculater": "calculator",
+            "calcualtor": "calculator",
             "explorer": "explorer",
             "file explorer": "explorer",
             "my files": "explorer",
@@ -659,6 +671,7 @@ class NLPService:
             "command prompt": "cmd",
             "powershell": "powershell",
             "spotify": "spotify",
+            "spotfy": "spotify",
             "discord": "discord",
             "settings": "settings",
             "task manager": "taskmgr",
@@ -670,7 +683,15 @@ class NLPService:
             "powerpoint": "powerpnt",
             "paint": "mspaint",
         }
-        return mapping.get(clean, clean)
+        if clean in mapping:
+            return mapping[clean]
+
+        import difflib
+        matches = difflib.get_close_matches(clean, list(mapping.keys()), n=1, cutoff=0.72)
+        if matches:
+            return mapping[matches[0]]
+
+        return clean
 
     def _extract_search_entities(self, text: str) -> Tuple[str, str]:
         engine = "google"
