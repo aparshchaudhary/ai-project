@@ -91,6 +91,26 @@ class TestSentenceDecompositionAndPlanning:
         assert search_task.intent in ["search_web", "summarize_results"]
         assert "AI agents" in (search_task.query or "")
 
+    def test_open_chrome_an_search_stt_typo_variation(self):
+        """Verifies STT variations like 'an', missing conjunctions, or 'Chrome an search what is ai'."""
+        variations = [
+            "Open Chrome an search what is ai",
+            "Open Chrome and search what is ai",
+            "Open Chrome search what is ai",
+            "Open Chrome, search what is ai",
+            "Chrome kholo aur search karo what is ai",
+        ]
+        for v in variations:
+            assert task_planner.is_multi_command(v) is True, f"Failed is_multi_command for: {v}"
+            plan = task_planner.plan_instruction(v)
+            assert len(plan.tasks) == 2, f"Expected 2 tasks for: {v}, got {len(plan.tasks)}"
+            assert plan.tasks[0].intent == "open_application"
+            assert plan.tasks[0].application == "chrome"
+            assert plan.tasks[1].intent == "search_web"
+            assert "what is ai" in plan.tasks[1].query.lower()
+            assert plan.tasks[0].id in plan.tasks[1].depends_on
+
+
 
 class TestContactServiceAndAmbiguity:
     """Tests contact book lookup, relationship matching, and ambiguity handling."""

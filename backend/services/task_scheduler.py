@@ -99,6 +99,7 @@ class TaskScheduler:
                 break
 
             # Execute all ready independent tasks concurrently
+            ready_tasks_to_run: List[TaskItem] = []
             tasks_to_gather = []
             for ready_task in ready_tasks:
                 # If task requires human confirmation and not auto_confirmed, pause it
@@ -110,6 +111,7 @@ class TaskScheduler:
                     # We leave this task in waiting state
                     continue
 
+                ready_tasks_to_run.append(ready_task)
                 tasks_to_gather.append(self._run_task_item(ready_task, plan.plan_id))
 
             if not tasks_to_gather:
@@ -118,7 +120,7 @@ class TaskScheduler:
 
             results = await asyncio.gather(*tasks_to_gather, return_exceptions=True)
 
-            for task_item, res in zip(ready_tasks, results):
+            for task_item, res in zip(ready_tasks_to_run, results):
                 if isinstance(res, Exception):
                     task_item.status = TaskStatus.FAILED
                     task_item.error = str(res)

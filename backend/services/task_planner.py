@@ -58,7 +58,7 @@ APP_CANONICAL_MAP = {
 
 # Conjunction patterns separating distinct instructions
 CONJUNCTION_PATTERN = re.compile(
-    r"\b(?:and then|then|after that|after this|aur phir|phir|uske baad|saath hi|ek saath|simultaneously|at the same time|and also|aur|tatha)\b|,",
+    r"\b(?:and then|then|after that|after this|aur phir|phir|uske baad|saath hi|ek saath|simultaneously|at the same time|and also|and|an|&|aur|tatha)\b|,",
     re.IGNORECASE
 )
 
@@ -84,29 +84,48 @@ class TaskPlanner:
             return False
 
         clean = text.strip()
-        # Check for conjunction words
-        has_conjunction = bool(re.search(
-            r"\b(?:and then|then|after that|aur phir|phir|uske baad|saath hi|ek saath|simultaneously)\b",
-            clean,
-            re.IGNORECASE
-        ))
-        if has_conjunction:
+        clauses = self._split_into_candidate_clauses(clean)
+        if len(clauses) > 1:
             return True
 
-        # Check for multiple intents separated by 'and' or 'aur' or ','
-        # e.g., "Open Chrome and WhatsApp", "Open Chrome and search for AI"
-        clauses = self._split_into_candidate_clauses(clean)
-        return len(clauses) > 1
+        # Check for conjunction words
+        has_conjunction = bool(CONJUNCTION_PATTERN.search(clean))
+        if has_conjunction and self._has_action_verb(clean):
+            return True
+
+        return self._has_multiple_action_verbs(clean)
+
+    def _has_multiple_action_verbs(self, text: str) -> bool:
+        """Checks if text contains multiple distinct action verbs or commands."""
+        text_lower = text.lower()
+        found_verbs = []
+        verbs = [
+            "open", "launch", "start", "kholo", "chalao",
+            "search", "find", "google", "look up", "dhoondho", "dhoondo", "khojo",
+            "send", "message", "text", "whatsapp", "bhejo",
+            "summarize", "summary", "explain",
+            "screenshot", "capture",
+            "close", "band karo"
+        ]
+        for v in verbs:
+            if re.search(rf"\b{re.escape(v)}\b", text_lower):
+                found_verbs.append(v)
+
+        if ("open" in found_verbs or "launch" in found_verbs or "kholo" in found_verbs) and \
+           any(v in found_verbs for v in ["search", "find", "google", "dhoondho", "dhoondo", "khojo", "send", "message", "bhejo", "screenshot"]):
+            return True
+
+        return len(found_verbs) >= 2
 
     def _split_into_candidate_clauses(self, text: str) -> List[str]:
         """
-        Splits sentence along conjunctions while respecting quotes.
+        Splits sentence along conjunctions and action boundaries while respecting quotes.
         """
         # First normalize double spaces and strip trailing punctuation
         clean_text = text.strip().rstrip(".!?,;:")
         normalized = re.sub(r"\s+", " ", clean_text)
 
-        # If user explicitly wrote "Open Chrome and WhatsApp [simultaneously]"
+        # 1. If user explicitly wrote "Open Chrome and WhatsApp [simultaneously]"
         clean_no_simul = re.sub(
             r"\s+\b(?:simultaneously|together|ek saath|saath hi|at the same time)\b.*$",
             "",
@@ -114,7 +133,7 @@ class TaskPlanner:
             flags=re.IGNORECASE
         ).strip()
         multi_open_match = re.match(
-            r"^(?:open|launch|kholo|chalao)\s+([a-zA-Z\s]+)\s+(?:and|aur|saath hi)\s+([a-zA-Z\s]+)$",
+            r"^(?:open|launch|kholo|chalao)\s+([a-zA-Z\s]+)\s+(?:and|an|&|aur|saath hi)\s+([a-zA-Z\s]+)$",
             clean_no_simul,
             re.IGNORECASE
         )
@@ -124,11 +143,22 @@ class TaskPlanner:
             if self._identify_app(app1) and self._identify_app(app2):
                 return [f"open {app1}", f"open {app2}"]
 
-        # Split on strong sequential markers first
+        # 2. Split on strong sequential markers first
         parts = re.split(
-            r"\b(?:and then|then|after that|aur phir|phir|uske baad|saath hi|ek saath|simultaneously)\b",
+            r"\b(?:and\s+then|then|after\s+that|aur\s+phir|phir|uske\s+baad|saath\s+hi|ek\s+saath|simultaneously)\b",
             normalized,
             flags=re.IGNORECASE
+        )
+
+        compound_action_pat = (
+            r"^(?:open|launch|start|run|kholo|chalao)\s+([a-zA-Z0-9\s]+?)\s*"
+            r"(?:\b(?:and\s+then|then|after\s+that|and|an|&|aur|phir)\b|,|\s)\s*"
+            r"(?:and\s+|an\s+|then\s+)?(search\s+for|search\s+about|search|find|google|look\s+up|dhoondho|dhoondo|khojo|send\s+message|send|message|text|screenshot|take\s+screenshot|write)\b\s*(.*)$"
+        )
+        pat_hindi = (
+            r"^([a-zA-Z0-9\s]+?)\s+(?:kholo|chalao)\s*"
+            r"(?:\b(?:aur\s+phir|phir|aur|an|and)\b|,|\s)\s*"
+            r"(?:search\s+karo\s+(.*)|(.*)\s+search\s+karo)$"
         )
 
         candidate_clauses = []
@@ -137,10 +167,32 @@ class TaskPlanner:
             if not part:
                 continue
 
-            # Now check if this subpart contains "and" or "aur" connecting distinct action verbs
-            subparts = re.split(r"\b(?:and|aur|tatha)\b", part, flags=re.IGNORECASE)
+            # Check direct compound action on this segment (e.g. "open Chrome an search what is ai")
+            compound_action_match = re.match(compound_action_pat, part, re.IGNORECASE)
+            if compound_action_match:
+                app_raw = compound_action_match.group(1).strip()
+                action_raw = compound_action_match.group(2).strip()
+                args_raw = compound_action_match.group(3).strip()
+                app_key = self._identify_app(app_raw)
+                if app_key:
+                    candidate_clauses.append(f"open {app_key}")
+                    candidate_clauses.append(f"{action_raw} {args_raw}".strip())
+                    continue
+
+            # Check Hindi compound pattern on this segment
+            hindi_m = re.match(pat_hindi, part, re.IGNORECASE)
+            if hindi_m:
+                app_raw = hindi_m.group(1).strip()
+                query_raw = (hindi_m.group(2) or hindi_m.group(3) or "").strip()
+                app_key = self._identify_app(app_raw)
+                if app_key:
+                    candidate_clauses.append(f"open {app_key}")
+                    candidate_clauses.append(f"search for {query_raw}" if query_raw else "search")
+                    continue
+
+            # Check if this subpart contains "and", "an", "&", "aur" connecting distinct action verbs
+            subparts = re.split(r"\b(?:and|an|&|aur|tatha)\b", part, flags=re.IGNORECASE)
             if len(subparts) > 1:
-                # Only split on "and" if both sides have distinct recognizable action verbs or apps
                 accumulated = []
                 current = ""
                 for s in subparts:
@@ -164,7 +216,7 @@ class TaskPlanner:
     def _has_action_verb(self, text: str) -> bool:
         verbs = [
             "open", "launch", "start", "run", "kholo", "chalao",
-            "search", "find", "google", "look up", "dhoondho", "khojo",
+            "search", "find", "google", "look up", "dhoondho", "dhoondo", "khojo",
             "send", "message", "text", "whatsapp", "bhejo",
             "summarize", "summary", "explain",
             "screenshot", "capture", "photo",

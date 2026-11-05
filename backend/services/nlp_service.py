@@ -617,6 +617,20 @@ class NLPService:
             flags=re.IGNORECASE
         ).strip()
 
+        # If candidate contains conjunctions or action words (e.g. "search", "what is"), don't treat the entire phrase as an application
+        if any(w in clean for w in ["search", "dhoondo", "dhoondho", "khojo", "what is", "send", "message", "bhejo"]):
+            app_sub = re.match(
+                r"^([a-zA-Z0-9\s]+?)\s*(?:\b(?:and\s+then|then|after\s+that|and|an|&|aur|phir)\b|,|\s)\s*(?:search|what|send|message|dhoondo|dhoondho|khojo)\b",
+                clean
+            )
+            if app_sub:
+                clean = app_sub.group(1).strip()
+            else:
+                for k in ["chrome", "whatsapp", "notepad", "calculator", "explorer", "spotify", "code"]:
+                    if k in clean:
+                        return k
+                return ""
+
         mapping = {
             "whatsapp": "whatsapp",
             "whats app": "whatsapp",
