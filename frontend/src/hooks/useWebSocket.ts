@@ -8,6 +8,7 @@ interface UseWebSocketOptions {
   onDesktopActivity?: (activity: any) => void;
   onAiAgentActivity?: (plan: AgentTaskPlan) => void;
   onAgentTaskProgress?: (data: { plan_id: string; task: AgentTaskItem }) => void;
+  onTaskEvent?: (event: any) => void;
 }
 
 export function useWebSocket({
@@ -16,7 +17,8 @@ export function useWebSocket({
   onCommandResult,
   onDesktopActivity,
   onAiAgentActivity,
-  onAgentTaskProgress
+  onAgentTaskProgress,
+  onTaskEvent
 }: UseWebSocketOptions = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
@@ -49,6 +51,8 @@ export function useWebSocket({
             onAiAgentActivity(data.plan);
           } else if (data.type === 'agent_task_progress' && onAgentTaskProgress && data.task) {
             onAgentTaskProgress(data);
+          } else if (data.type === 'task_event' && onTaskEvent && data.event) {
+            onTaskEvent(data.event);
           }
         } catch (e) {
           console.error('Failed to parse WebSocket message', e);
@@ -68,7 +72,7 @@ export function useWebSocket({
     } catch (e) {
       reconnectTimeoutRef.current = setTimeout(connect, 3000);
     }
-  }, [onCommandResult, onReminderAlert, onStateChange, onDesktopActivity, onAiAgentActivity, onAgentTaskProgress]);
+  }, [onCommandResult, onReminderAlert, onStateChange, onDesktopActivity, onAiAgentActivity, onAgentTaskProgress, onTaskEvent]);
 
   useEffect(() => {
     connect();

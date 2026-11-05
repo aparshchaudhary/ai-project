@@ -76,6 +76,20 @@ export const DesktopActivityPanel: React.FC<DesktopActivityPanelProps> = ({
         </div>
       );
     }
+    if (key.includes('search') || key.includes('google')) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 font-bold text-xs">
+          SE
+        </div>
+      );
+    }
+    if (key.includes('youtube') || key.includes('yt')) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 font-bold text-xs">
+          YT
+        </div>
+      );
+    }
     return (
       <div className="w-8 h-8 rounded-lg bg-slate-700/50 border border-slate-600 flex items-center justify-center text-slate-300 font-bold text-xs">
         <Monitor className="w-4 h-4 text-cyan-400" />
@@ -84,11 +98,11 @@ export const DesktopActivityPanel: React.FC<DesktopActivityPanelProps> = ({
   };
 
   const getStatusBadge = (item: DesktopActivityItem) => {
-    if (item.window_detected) {
+    if (item.status === 'Completed' || item.window_detected) {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 border border-emerald-500/40 text-emerald-300">
           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-          <span>Window detected</span>
+          <span>{item.status === 'Completed' ? 'Completed' : 'Window detected'}</span>
         </span>
       );
     }
@@ -103,7 +117,7 @@ export const DesktopActivityPanel: React.FC<DesktopActivityPanelProps> = ({
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-950/80 border border-rose-500/40 text-rose-300">
         <AlertTriangle className="w-3 h-3 text-rose-400" />
-        <span>Launch failed</span>
+        <span>{item.status || 'Launch failed'}</span>
       </span>
     );
   };

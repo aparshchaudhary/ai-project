@@ -226,7 +226,7 @@ class NLPService:
                 if app_name:
                     return IntentResult(
                         intent="open_application",
-                        entities={"application": app_name, "raw_app": target_app_phrase},
+                        entities={"application": app_name, "raw_app": app_name},
                         confidence=0.97,
                         requires_confirmation=False,
                         risk_level="low",

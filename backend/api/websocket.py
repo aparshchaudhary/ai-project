@@ -41,5 +41,9 @@ class ConnectionManager:
         for d in dead:
             self.active_connections.discard(d)
 
+    async def broadcast_json(self, message: dict):
+        """Alias for broadcast with dictionary payload."""
+        await self.broadcast(message)
+
 
 ws_manager = ConnectionManager()

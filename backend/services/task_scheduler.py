@@ -23,6 +23,7 @@ from backend.services.whatsapp_service import whatsapp_service
 from backend.services.contact_service import contact_service
 from backend.services.screenshot_service import screenshot_service
 from backend.services.system_service import system_service
+from backend.services.event_notification_service import event_notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,27 @@ class TaskScheduler:
 
         plan.summary = self._generate_aggregated_summary(plan)
         await self.broadcast_plan_update(plan)
+
+        # Emit final workflow completion or partial failure lifecycle event
+        if plan.status == "completed":
+            await event_notification_service.emit_event(
+                event_type="workflow_completed",
+                title="All tasks completed successfully.",
+                message="Status: Completed",
+                status="Completed",
+                plan_id=plan.plan_id,
+                metadata={"tasks_count": len(plan.tasks)}
+            )
+        elif plan.status == "partially_failed":
+            await event_notification_service.emit_event(
+                event_type="workflow_partial_failure",
+                title="Compound workflow partially completed",
+                message=plan.summary or "Some tasks could not be completed.",
+                status="Partially Failed",
+                plan_id=plan.plan_id,
+                metadata={"tasks_count": len(plan.tasks)}
+            )
+
         return plan
 
     async def _run_task_item(self, task: TaskItem, plan_id: str):
@@ -154,6 +176,30 @@ class TaskScheduler:
         task.status = TaskStatus.RUNNING
         task.start_time = time.time()
         await self.broadcast_task_update(plan_id, task)
+
+        # Determine human-friendly title based on intent
+        if task.intent == "open_application":
+            app_def = desktop_window_manager.get_app_definition(task.application or "chrome")
+            app_disp = app_def["display_name"] if app_def else (task.application or "Chrome").title()
+            start_title = f"Opening {app_disp}..."
+        elif task.intent == "search_web":
+            query_disp = task.query or "Artificial Intelligence"
+            start_title = f"Searching for {query_disp}..."
+        elif task.intent == "send_message":
+            contact_disp = task.contact or "Contact"
+            start_title = f"Sending message to {contact_disp}..."
+        else:
+            start_title = f"Executing {task.title}..."
+
+        await event_notification_service.emit_event(
+            event_type="task_started",
+            title=start_title,
+            message="Status: In Progress",
+            status="In Progress",
+            task_id=task.id,
+            plan_id=plan_id,
+            metadata={"intent": task.intent, "application": task.application, "query": task.query}
+        )
 
         try:
             if task.intent == "open_application":
@@ -181,6 +227,39 @@ class TaskScheduler:
             if task.start_time:
                 task.execution_time_ms = (time.time() - task.start_time) * 1000
             await self.broadcast_task_update(plan_id, task)
+
+            # Emit task completion or failure notification
+            if task.status == TaskStatus.COMPLETED:
+                if task.intent == "open_application":
+                    app_def = desktop_window_manager.get_app_definition(task.application or "chrome")
+                    app_disp = app_def["display_name"] if app_def else (task.application or "Chrome").title()
+                    done_title = f"{app_disp} opened successfully."
+                elif task.intent == "search_web":
+                    done_title = "Search completed successfully."
+                elif task.intent == "send_message":
+                    done_title = f"Message sent to {task.contact or 'Contact'} successfully."
+                else:
+                    done_title = f"{task.title} completed."
+
+                await event_notification_service.emit_event(
+                    event_type="task_completed",
+                    title=done_title,
+                    message="Status: Completed",
+                    status="Completed",
+                    task_id=task.id,
+                    plan_id=plan_id,
+                    metadata={"intent": task.intent, "result": task.result}
+                )
+            elif task.status == TaskStatus.FAILED:
+                await event_notification_service.emit_event(
+                    event_type="task_failed",
+                    title=f"Failed to execute {task.title}",
+                    message=task.error or "Task failed",
+                    status="Failed",
+                    task_id=task.id,
+                    plan_id=plan_id,
+                    metadata={"intent": task.intent, "error": task.error}
+                )
 
     async def _execute_open_app(self, task: TaskItem):
         """Executes application launch with GUI foreground lock."""
@@ -318,7 +397,19 @@ class TaskScheduler:
         """Synthesizes natural, spoken summary across all task outcomes."""
         completed = [t for t in plan.tasks if t.status == TaskStatus.COMPLETED]
         waiting = [t for t in plan.tasks if t.status == TaskStatus.WAITING_CONFIRMATION]
-        failed = [t for t in plan.tasks if t.status == TaskStatus.FAILED]
+        failed = [t for t in plan.tasks if t.status in [TaskStatus.FAILED, TaskStatus.SKIPPED]]
+
+        # Exact specification:
+        # If Chrome opened successfully but the search failed:
+        chrome_opened = any(t.intent == "open_application" and t.application in ["chrome", "browser"] and t.status == TaskStatus.COMPLETED for t in plan.tasks)
+        search_failed = any(t.intent == "search_web" and t.status in [TaskStatus.FAILED, TaskStatus.SKIPPED] for t in plan.tasks)
+        if chrome_opened and search_failed and len(plan.tasks) == 2:
+            return "Google Chrome opened successfully, but I couldn't complete the search."
+
+        # If all tasks completed cleanly for compound action
+        if not failed and not waiting and completed:
+            if any(t.intent == "search_web" for t in completed) and any(t.intent == "open_application" for t in completed):
+                return "All tasks completed successfully."
 
         parts = []
         if completed:

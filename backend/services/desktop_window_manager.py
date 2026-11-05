@@ -227,6 +227,15 @@ class DesktopWindowManager:
                 "candidate_paths": [],
                 "protocol": "ms-settings:",
                 "icon": "settings"
+            },
+            "youtube": {
+                "display_name": "YouTube",
+                "process_names": ["chrome.exe", "msedge.exe", "firefox.exe"],
+                "window_keywords": ["youtube"],
+                "candidate_paths": [],
+                "protocol": "https://www.youtube.com",
+                "web_fallback": "https://www.youtube.com",
+                "icon": "video"
             }
         }
 
@@ -272,7 +281,9 @@ class DesktopWindowManager:
             "cmd": "terminal",
             "powershell": "terminal",
             "task manager": "taskmgr",
-            "activity monitor": "taskmgr"
+            "activity monitor": "taskmgr",
+            "youtube": "youtube",
+            "yt": "youtube"
         }
 
         if target_clean in alias_map:

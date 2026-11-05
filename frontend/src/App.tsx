@@ -199,29 +199,86 @@ export function App() {
         setActivePlan(res.data as AgentTaskPlan);
       }
 
-      // 4. Desktop Activity Tracking for App Launches
       const appTask = res.intent === 'multi_command_plan' && res.data?.tasks
         ? res.data.tasks.find((t: any) => t.intent === 'open_application')
         : null;
-
       const appData = appTask?.data || (res.data && res.data.app_name ? res.data : null);
-      if (appData && (appData.app_name || appTask?.application)) {
-        const actItem: DesktopActivityItem = {
-          id: Math.random().toString(36).substring(2, 9),
-          app_key: appData.app_key || appTask?.application || 'app',
-          app_name: appData.app_name || (appTask?.application ? appTask.application.toUpperCase() : 'Application'),
-          command_received: userText,
-          status: appData.status || (appData.window_detected ? 'Window detected' : 'Process started'),
-          action: appData.action || 'launched_process',
-          process_started: appData.process_started ?? true,
-          window_detected: appData.window_detected ?? false,
-          pid: appData.pid,
-          hwnd: appData.hwnd,
-          execution_time_ms: appData.execution_time_ms ?? res.execution_time_ms,
-          timestamp: appData.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          error: appData.error,
-        };
-        setDesktopActivities((prev) => [actItem, ...prev]);
+
+      // 4. Desktop Activity Tracking for App Launches & Multi-Command Steps
+      if (res.intent === 'multi_command_plan' && res.data?.tasks) {
+        const newActs: DesktopActivityItem[] = [];
+        for (const t of res.data.tasks) {
+          const tData = t.data || {};
+          const isDone = t.status === 'Completed' || t.status === 'completed';
+          if (t.intent === 'open_application') {
+            newActs.push({
+              id: Math.random().toString(36).substring(2, 9),
+              app_key: t.application || 'app',
+              app_name: tData.app_name || (t.application ? t.application.toUpperCase() : 'Google Chrome'),
+              command_received: userText,
+              status: tData.status || (isDone ? 'Window detected' : 'Launch failed'),
+              action: tData.action || 'launched_process',
+              process_started: tData.process_started ?? isDone,
+              window_detected: tData.window_detected ?? isDone,
+              pid: tData.pid,
+              hwnd: tData.hwnd,
+              execution_time_ms: t.execution_time_ms || tData.execution_time_ms,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              error: t.error || tData.error,
+            });
+          } else if (t.intent === 'search_web') {
+            newActs.push({
+              id: Math.random().toString(36).substring(2, 9),
+              app_key: 'search',
+              app_name: `Google Search: "${t.query || 'query'}"`,
+              command_received: userText,
+              status: isDone ? 'Completed' : 'Launch failed',
+              action: 'executed',
+              process_started: true,
+              window_detected: true,
+              execution_time_ms: t.execution_time_ms || tData.execution_time_ms,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              error: t.error,
+            });
+          } else if (t.intent === 'send_message') {
+            newActs.push({
+              id: Math.random().toString(36).substring(2, 9),
+              app_key: 'whatsapp',
+              app_name: `WhatsApp: ${t.contact || 'Contact'}`,
+              command_received: userText,
+              status: isDone ? 'Completed' : 'Launch failed',
+              action: 'executed',
+              process_started: true,
+              window_detected: false,
+              execution_time_ms: t.execution_time_ms || tData.execution_time_ms,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              error: t.error,
+            });
+          }
+        }
+        if (newActs.length > 0) {
+          setDesktopActivities((prev) => [...newActs, ...prev]);
+        }
+      } else {
+        const appData = res.data && res.data.app_name ? res.data : null;
+        if (appData && (appData.app_name || res.entities?.application)) {
+          const actItem: DesktopActivityItem = {
+            id: Math.random().toString(36).substring(2, 9),
+            app_key: appData.app_key || res.entities?.application || 'app',
+            app_name: appData.app_name || (res.entities?.application ? res.entities.application.toUpperCase() : 'Application'),
+            command_received: userText,
+            status: appData.status || (appData.window_detected ? 'Window detected' : 'Process started'),
+            action: appData.action || 'launched_process',
+            process_started: appData.process_started ?? true,
+            window_detected: appData.window_detected ?? false,
+            pid: appData.pid,
+            hwnd: appData.hwnd,
+            execution_time_ms: appData.execution_time_ms ?? res.execution_time_ms,
+            timestamp: appData.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            error: appData.error,
+          };
+          setDesktopActivities((prev) => [actItem, ...prev]);
+        }
       }
 
       // 5. High-Visibility Popup Notification Toast
@@ -442,6 +499,21 @@ export function App() {
           ...prev,
           tasks: prev.tasks.map((t) => (t.id === data.task.id ? data.task : t)),
         };
+      });
+    },
+    onTaskEvent: (event) => {
+      if (!event) return;
+      const isFailed = event.status === 'Failed' || event.status === 'Partially Failed';
+      setLaunchNotification({
+        isOpen: true,
+        appName: event.metadata?.application || event.metadata?.app_name || event.title,
+        title: event.title,
+        message: event.message || `Status: ${event.status}`,
+        status: event.status,
+        isSuccess: !isFailed,
+        error: isFailed ? event.message : undefined,
+        eventType: event.event_type,
+        rawApp: event.metadata?.application,
       });
     },
   });

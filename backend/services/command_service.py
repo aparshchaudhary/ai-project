@@ -32,6 +32,7 @@ from backend.services.task_scheduler import task_scheduler
 from backend.services.contact_service import contact_service
 from backend.services.whatsapp_service import whatsapp_service
 from backend.services.browser_automation_service import browser_automation_service
+from backend.services.event_notification_service import event_notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,15 @@ class CommandService:
                 requires_confirmation=False,
                 execution_time_ms=(time.time() - start_time) * 1000
             )
+
+        # Emit command_received lifecycle event
+        await event_notification_service.emit_event(
+            event_type="command_received",
+            title="Voice command received",
+            message=f"Command: {text}",
+            status="Received",
+            metadata={"command_text": text}
+        )
 
         # Check if input is a multi-command instruction or active agent follow-up
         is_ambiguity_followup = bool(task_planner.conversation_context.get("awaiting_ambiguity"))
@@ -345,6 +355,15 @@ class CommandService:
             app_def = desktop_window_manager.get_app_definition(app)
             disp_name = app_def["display_name"] if app_def else app.capitalize()
 
+            # Lifecycle Notification: Task started
+            await event_notification_service.emit_event(
+                event_type="task_started",
+                title=f"Opening {disp_name}...",
+                message="Status: In Progress",
+                status="In Progress",
+                metadata={"application": app, "app_name": disp_name}
+            )
+
             # Natural pre-launch acknowledgment
             initial_ack = f"Sure, opening {disp_name}."
             try:
@@ -354,6 +373,24 @@ class CommandService:
 
             # Real desktop application launch with process & window verification
             success, msg, data = automation_service.launch_app(app)
+
+            # Lifecycle Notification: Task completed or failed
+            if success:
+                await event_notification_service.emit_event(
+                    event_type="task_completed",
+                    title=f"{disp_name} opened successfully.",
+                    message="Status: Completed",
+                    status="Completed",
+                    metadata={"application": app, "app_name": disp_name}
+                )
+            else:
+                await event_notification_service.emit_event(
+                    event_type="task_failed",
+                    title=f"Failed to open {disp_name}",
+                    message=msg or "Application could not be launched",
+                    status="Failed",
+                    metadata={"application": app, "app_name": disp_name}
+                )
 
             # Broadcast desktop activity over WebSocket to live dashboard panel
             if data:
@@ -378,8 +415,34 @@ class CommandService:
             query = entities.get("query", "")
             engine = entities.get("engine", "google")
             summarize = entities.get("summarize", False)
+
+            await event_notification_service.emit_event(
+                event_type="task_started",
+                title=f"Searching for {query}...",
+                message="Status: In Progress",
+                status="In Progress",
+                metadata={"query": query, "engine": engine}
+            )
+
             res = browser_automation_service.execute_search(query, engine, summarize)
-            return res.get("success", True), res.get("message", f"Searched for {query}"), res
+            search_success = res.get("success", True)
+            if search_success:
+                await event_notification_service.emit_event(
+                    event_type="task_completed",
+                    title="Search completed successfully.",
+                    message="Status: Completed",
+                    status="Completed",
+                    metadata={"query": query, "engine": engine}
+                )
+            else:
+                await event_notification_service.emit_event(
+                    event_type="task_failed",
+                    title=f"Search failed for {query}",
+                    message=res.get("error", "Search operation failed"),
+                    status="Failed",
+                    metadata={"query": query, "engine": engine}
+                )
+            return search_success, res.get("message", f"Searched for {query}"), res
 
         elif intent == "open_website":
             url = entities.get("url", "https://google.com")

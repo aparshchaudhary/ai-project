@@ -58,6 +58,8 @@ APP_CANONICAL_MAP = {
     "file explorer": "explorer",
     "files": "explorer",
     "terminal": "terminal",
+    "youtube": "youtube",
+    "yt": "youtube",
     "cmd": "terminal",
     "powershell": "terminal",
     "command prompt": "terminal",
@@ -407,14 +409,14 @@ class TaskPlanner:
         # Patterns: "search for AI", "search about machine learning", "AI search karo", "dhoondho X"
         # Support engines: YouTube, Google, News
         engine = "google"
-        if "youtube" in clause_lower:
+        if "youtube" in clause_lower or current_app_context == "youtube":
             engine = "youtube"
         elif "news" in clause_lower:
             engine = "news"
 
         # Check Hindi search patterns first to avoid capturing "search" in "search karo"
         hindi_search_match = re.search(
-            r"^(.*?)(?:\s+ke baare mein)?\s+(?:search karo|dhoondho|khojo)\b",
+            r"^(.*?)(?:\s+(?:ke baare mein|ke bare me|ke baare me|ke bare mein))?\s+(?:search karo|dhoondho|khojo)\b",
             clause_clean,
             re.IGNORECASE
         )
@@ -430,11 +432,12 @@ class TaskPlanner:
             raw_query = hindi_search_match.group(1) if hindi_search_match else search_match.group(1)
             # Clean up query
             clean_query = re.sub(
-                r"\b(?:and then summarize the results|and summarize|summarize results|then summarize)\b",
+                r"\b(?:and then summarize the results|and summarize|summarize results|then summarize|ke baare mein|ke bare me|ke baare me|ke bare mein)\b",
                 "",
                 raw_query,
                 flags=re.IGNORECASE
             ).strip()
+            clean_query = re.sub(r"^(?:for|about)\s+", "", clean_query, flags=re.IGNORECASE).strip()
 
             target_app = "chrome"
             self.conversation_context["last_query"] = clean_query

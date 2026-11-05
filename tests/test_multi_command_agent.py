@@ -311,3 +311,115 @@ class TestAgentRestApiEndpoints:
                 res = dwm.launch_or_activate("calculator")
                 assert res.success is True
                 assert res.status in ["Process started", "Window detected", "Already running"]
+
+
+class TestRequiredExecutionScenarios:
+    """Tests the 8 exact test scenarios and real-time lifecycle event notifications."""
+
+    def test_case_1_open_chrome_single_command(self):
+        plan = task_planner.plan_instruction("Open Chrome.")
+        assert len(plan.tasks) == 1
+        assert plan.tasks[0].intent == "open_application"
+        assert plan.tasks[0].application == "chrome"
+
+    def test_case_2_open_chrome_and_search_about_ai(self):
+        plan = task_planner.plan_instruction("Open Chrome and search about AI.")
+        assert len(plan.tasks) == 2
+        assert plan.tasks[0].intent == "open_application"
+        assert plan.tasks[0].application == "chrome"
+        assert plan.tasks[1].intent == "search_web"
+        assert plan.tasks[1].query.lower() == "ai"
+        assert plan.tasks[0].id in plan.tasks[1].depends_on
+
+    def test_case_3_open_chrome_and_search_for_machine_learning(self):
+        plan = task_planner.plan_instruction("Open Chrome and search for machine learning.")
+        assert len(plan.tasks) == 2
+        assert plan.tasks[1].query.lower() == "machine learning"
+        assert plan.tasks[0].id in plan.tasks[1].depends_on
+
+    def test_case_4_open_youtube_and_search_for_python_tutorials(self):
+        plan = task_planner.plan_instruction("Open YouTube and search for Python tutorials.")
+        assert len(plan.tasks) == 2
+        assert plan.tasks[0].application == "youtube"
+        assert plan.tasks[1].engine == "youtube"
+        assert "python tutorials" in plan.tasks[1].query.lower()
+
+    def test_case_5_three_step_sequential_with_notepad(self):
+        plan = task_planner.plan_instruction("Open Chrome, search for artificial intelligence, and then open Notepad.")
+        assert len(plan.tasks) == 3
+        assert plan.tasks[0].application == "chrome"
+        assert plan.tasks[1].intent == "search_web"
+        assert plan.tasks[2].application == "notepad"
+
+    def test_case_6_direct_search_without_browser_prefix(self):
+        plan = task_planner.plan_instruction("Search about AI.")
+        assert len(plan.tasks) == 1
+        assert plan.tasks[0].intent == "search_web"
+        assert plan.tasks[0].query.lower() == "ai"
+
+    @pytest.mark.asyncio
+    async def test_case_7_open_chrome_and_search_when_chrome_running(self):
+        plan = task_planner.plan_instruction("Open Chrome and search about Artificial Intelligence.")
+        with patch.object(task_scheduler, "_execute_open_app") as mock_open:
+            with patch.object(task_scheduler, "_execute_search_web") as mock_search:
+                async def fake_open(t):
+                    t.status = TaskStatus.COMPLETED
+                    t.result = "Chrome focused in foreground."
+                async def fake_search(t):
+                    t.status = TaskStatus.COMPLETED
+                    t.result = f"Searched for {t.query}"
+                mock_open.side_effect = fake_open
+                mock_search.side_effect = fake_search
+
+                executed = await task_scheduler.execute_plan(plan)
+                assert executed.status == "completed"
+                assert executed.summary == "All tasks completed successfully."
+
+    @pytest.mark.asyncio
+    async def test_case_8_partial_failure_summary_exact_phrasing(self):
+        """If Chrome opens successfully but search fails, says: 'Google Chrome opened successfully, but I couldn't complete the search.'"""
+        plan = task_planner.plan_instruction("Open Chrome and search about Artificial Intelligence.")
+        with patch.object(task_scheduler, "_execute_open_app") as mock_open:
+            with patch.object(task_scheduler, "_execute_search_web") as mock_search:
+                async def fake_open(t):
+                    t.status = TaskStatus.COMPLETED
+                    t.result = "Google Chrome launched."
+                async def fake_search(t):
+                    t.status = TaskStatus.FAILED
+                    t.error = "Connection timed out."
+                mock_open.side_effect = fake_open
+                mock_search.side_effect = fake_search
+
+                executed = await task_scheduler.execute_plan(plan)
+                assert executed.status == "partially_failed"
+                assert executed.summary == "Google Chrome opened successfully, but I couldn't complete the search."
+
+    @pytest.mark.asyncio
+    async def test_event_notification_service_lifecycle_emission(self):
+        from backend.services.event_notification_service import event_notification_service
+        events_emitted = []
+        original_emit = event_notification_service.emit_event
+
+        async def intercept_emit(event_type, title, message="", status="In Progress", **kwargs):
+            events_emitted.append({"type": event_type, "title": title, "status": status})
+            return await original_emit(event_type, title, message, status, **kwargs)
+
+        with patch.object(event_notification_service, "emit_event", side_effect=intercept_emit):
+            with patch("backend.services.tts_service.tts_service.speak"):
+                with patch.object(task_scheduler, "_execute_open_app") as mock_open:
+                    with patch.object(task_scheduler, "_execute_search_web") as mock_search:
+                        async def fake_open(t):
+                            t.status = TaskStatus.COMPLETED
+                        async def fake_search(t):
+                            t.status = TaskStatus.COMPLETED
+                        mock_open.side_effect = fake_open
+                        mock_search.side_effect = fake_search
+
+                        await command_service.process_command("Open Chrome and search about Artificial Intelligence.")
+
+        types = [e["type"] for e in events_emitted]
+        assert "command_received" in types
+        assert "task_started" in types
+        assert "task_completed" in types
+        assert "workflow_completed" in types
+

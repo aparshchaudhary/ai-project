@@ -115,10 +115,25 @@ class BrowserAutomationService:
         5. Optionally extracts and summarizes the results
         """
         clean_query = query.strip()
+        if not clean_query:
+            return {
+                "success": False,
+                "query": "",
+                "error": "Search query cannot be empty.",
+                "message": "Search query cannot be empty."
+            }
+
         start_time = time.time()
 
         # Step 1: Ensure browser process & window
         browser_info = self.ensure_browser_ready(browser)
+        if not browser_info.get("success"):
+            return {
+                "success": False,
+                "query": clean_query,
+                "error": browser_info.get("message", "Browser could not be initialized."),
+                "message": browser_info.get("message", "Browser could not be initialized.")
+            }
 
         # Step 2: Determine URL format
         engine_key = engine.lower()
@@ -137,26 +152,38 @@ class BrowserAutomationService:
             target_url = SEARCH_ENGINES["google"].format(query=encoded)
             search_type = "google_search"
 
-        # Step 3: Open in browser
+        # Step 3: Open in browser (Prioritize Google Chrome executable directly)
         nav_success = False
         try:
-            # On Windows, os.startfile directly asks the OS Shell to open the URL in the default browser/Chrome
-            if IS_WINDOWS and hasattr(os, "startfile"):
-                os.startfile(target_url)
-                nav_success = True
-            elif self._chrome_exec and os.path.exists(self._chrome_exec):
+            if self._chrome_exec and os.path.exists(self._chrome_exec) and browser in ["chrome", "browser"]:
                 import subprocess
                 subprocess.Popen([self._chrome_exec, target_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                nav_success = True
+            elif IS_WINDOWS and hasattr(os, "startfile"):
+                os.startfile(target_url)
                 nav_success = True
             else:
                 nav_success = webbrowser.open(target_url)
         except Exception as e:
-            logger.warning(f"Error opening URL via startfile/executable: {e}, falling back to webbrowser: {e}")
-            nav_success = webbrowser.open(target_url)
+            logger.warning(f"Direct executable navigation failed: {e}, attempting fallback: {e}")
+            try:
+                if IS_WINDOWS and hasattr(os, "startfile"):
+                    os.startfile(target_url)
+                    nav_success = True
+                else:
+                    nav_success = webbrowser.open(target_url)
+            except Exception as e2:
+                logger.error(f"Browser navigation failed completely: {e2}")
+                return {
+                    "success": False,
+                    "query": clean_query,
+                    "error": f"Browser navigation failed: {e2}",
+                    "message": f"Browser navigation failed: {e2}"
+                }
 
         # Give browser time to display and bring to foreground
-        time.sleep(0.3)
-        if IS_WINDOWS:
+        time.sleep(0.4)
+        if IS_WINDOWS and browser in ["chrome", "browser"]:
             desktop_window_manager.focus_process_window("chrome.exe")
 
         # Step 4: Summary if requested
