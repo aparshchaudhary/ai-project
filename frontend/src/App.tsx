@@ -153,6 +153,197 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [assistantState]);
 
+  const handleCloseLaunchNotification = useCallback(() => {
+    setLaunchNotification(null);
+  }, []);
+
+  // Unified Command Result Processing (Voice, Quick Action, Text, or WebSocket)
+  const handleCommandResult = useCallback(
+    (commandText: string, res: CommandExecutionResult) => {
+      setLastResult(res);
+
+      if (res.requires_confirmation && res.confirmation_id) {
+        setAssistantState('waiting_confirmation');
+        setConfirmationState({
+          isOpen: true,
+          confirmationId: res.confirmation_id,
+          prompt: res.response_text,
+          intent: res.intent,
+          riskLevel: res.risk_level as 'medium' | 'high',
+        });
+        return;
+      }
+
+      // 1. Add to Live Conversation Stream
+      const userText = commandText || (res.entities?.command_text as string) || (res.data?.original_instruction as string) || 'Voice Command';
+      const newTurn: ConversationTurn = {
+        id: Math.random().toString(36).substring(2, 9),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        user_text: userText,
+        response_text: res.response_text,
+        intent: res.intent,
+        status: res.status,
+        risk_level: res.risk_level,
+      };
+
+      setConversationHistory((prev) => [newTurn, ...prev]);
+      setAssistantState('speaking');
+
+      // 2. Confetti on successful notable operations
+      if (res.success && ['take_screenshot', 'open_application', 'create_folder', 'multi_command_plan', 'search_web'].includes(res.intent)) {
+        confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
+      }
+
+      // 3. Multi-Command DAG Plan
+      if (res.intent === 'multi_command_plan' && res.data) {
+        setActivePlan(res.data as AgentTaskPlan);
+      }
+
+      // 4. Desktop Activity Tracking for App Launches
+      const appTask = res.intent === 'multi_command_plan' && res.data?.tasks
+        ? res.data.tasks.find((t: any) => t.intent === 'open_application')
+        : null;
+
+      const appData = appTask?.data || (res.data && res.data.app_name ? res.data : null);
+      if (appData && (appData.app_name || appTask?.application)) {
+        const actItem: DesktopActivityItem = {
+          id: Math.random().toString(36).substring(2, 9),
+          app_key: appData.app_key || appTask?.application || 'app',
+          app_name: appData.app_name || (appTask?.application ? appTask.application.toUpperCase() : 'Application'),
+          command_received: userText,
+          status: appData.status || (appData.window_detected ? 'Window detected' : 'Process started'),
+          action: appData.action || 'launched_process',
+          process_started: appData.process_started ?? true,
+          window_detected: appData.window_detected ?? false,
+          pid: appData.pid,
+          hwnd: appData.hwnd,
+          execution_time_ms: appData.execution_time_ms ?? res.execution_time_ms,
+          timestamp: appData.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          error: appData.error,
+        };
+        setDesktopActivities((prev) => [actItem, ...prev]);
+      }
+
+      // 5. High-Visibility Popup Notification Toast
+      const rawApp = (appTask?.application || res.entities?.application || appData?.app_key || '').toLowerCase();
+      const appDisplayName = appData?.app_name || (rawApp ? rawApp.charAt(0).toUpperCase() + rawApp.slice(1) : '');
+
+      let toastTitle = appDisplayName;
+      let toastMessage = res.response_text;
+      const isSuccess = Boolean(
+        res.success ||
+        (appTask && (String(appTask.status).toLowerCase() === 'completed' || appTask.data?.success))
+      );
+      let toastStatus = appData?.status || (isSuccess ? 'Window detected' : 'Launch failed');
+
+      if (res.intent === 'open_application' || appTask) {
+        toastTitle = appDisplayName || 'Application';
+        toastMessage = isSuccess ? `${toastTitle} successfully opened.` : `Failed to launch ${toastTitle}.`;
+        toastStatus = appData?.status || (isSuccess ? 'Window detected' : 'Launch failed');
+      } else if (res.intent === 'multi_command_plan') {
+        toastTitle = appDisplayName ? `${appDisplayName} + Search` : 'Multi-Command Agent';
+        toastMessage = res.response_text || 'Multi-command execution finished.';
+        toastStatus = res.status === 'success' || isSuccess ? 'Completed' : 'Partially Failed';
+      } else if (res.intent === 'search_web') {
+        toastTitle = 'Web Search';
+        toastMessage = res.response_text || `Searched for ${res.entities?.query || 'query'}`;
+        toastStatus = 'Completed';
+      } else {
+        toastTitle = res.intent.replace(/_/g, ' ').toUpperCase();
+        toastMessage = res.response_text || 'Command completed.';
+        toastStatus = res.success ? 'Success' : 'Failed';
+      }
+
+      setLaunchNotification({
+        isOpen: true,
+        appName: toastTitle,
+        message: toastMessage,
+        status: toastStatus,
+        executionTimeMs: appData?.execution_time_ms ?? res.execution_time_ms ?? 0,
+        isSuccess: isSuccess,
+        error: appData?.error || (!res.success ? res.response_text : null),
+        protocol: appData?.client_protocol,
+        webFallback: appData?.web_fallback,
+        rawApp: rawApp,
+      });
+
+      // 6. Search Web Tab Opening
+      const searchTask = res.intent === 'multi_command_plan' && res.data?.tasks
+        ? res.data.tasks.find((t: any) => t.intent === 'search_web')
+        : null;
+
+      if (searchTask && (String(searchTask.status).toLowerCase() === 'completed' || searchTask.data?.success)) {
+        const searchUrl = searchTask.data?.url || `https://www.google.com/search?q=${encodeURIComponent(searchTask.query || '')}`;
+        try {
+          window.open(searchUrl, '_blank');
+        } catch (e) {
+          console.debug('Search popup notice:', e);
+        }
+      } else if (res.intent === 'search_web' && res.success) {
+        const searchUrl = res.data?.url || `https://www.google.com/search?q=${encodeURIComponent(res.entities?.query || '')}`;
+        try {
+          window.open(searchUrl, '_blank');
+        } catch (e) {
+          console.debug('Search popup notice:', e);
+        }
+      }
+
+      // 7. Client-side Application Launching (enables real desktop apps to open even when connected to Render cloud)
+      if ((res.intent === 'open_application' || appTask) && isSuccess) {
+        try {
+          if (rawApp.includes('chrome') || rawApp.includes('browser')) {
+            if (!searchTask) window.open('https://www.google.com', '_blank');
+          } else if (rawApp.includes('calc')) {
+            const link = document.createElement('a');
+            link.href = 'calculator:';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } else if (rawApp.includes('whatsapp')) {
+            const link = document.createElement('a');
+            link.href = 'whatsapp:';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } else if (rawApp.includes('code') || rawApp.includes('vs')) {
+            const link = document.createElement('a');
+            link.href = 'vscode:';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } else if (rawApp.includes('spotify')) {
+            const link = document.createElement('a');
+            link.href = 'spotify:';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } else if (appData?.client_protocol) {
+            const link = document.createElement('a');
+            link.href = appData.client_protocol;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } else if (appData?.web_fallback) {
+            window.open(appData.web_fallback, '_blank');
+          }
+        } catch (launchErr) {
+          console.debug('Client protocol launch notice:', launchErr);
+        }
+      }
+
+      // Return to listening if continuous listening mode, else idle
+      setTimeout(() => {
+        setAssistantState((prev) => (prev === 'speaking' ? 'idle' : prev));
+      }, 2500);
+
+      // Refresh reminders or system if relevant
+      if (['set_reminder', 'list_reminders'].includes(res.intent)) {
+        api.getReminders().then(setReminders).catch(() => {});
+      }
+    },
+    []
+  );
+
   // Execute Command Pipeline
   const executeCommand = useCallback(
     async (commandText: string) => {
@@ -165,177 +356,13 @@ export function App() {
           demo_mode: settings.demo_mode,
         });
 
-        setLastResult(res);
-
-        // Record desktop application activity if present
-        if (res.data && res.data.app_name) {
-          const actItem: DesktopActivityItem = {
-            id: Math.random().toString(36).substring(2, 9),
-            app_key: res.data.app_key || res.data.app_name.toLowerCase(),
-            app_name: res.data.app_name,
-            command_received: res.data.command_received || commandText,
-            status: res.data.status || (res.data.window_detected ? 'Window detected' : 'Process started'),
-            action: res.data.action || 'launched_process',
-            process_started: res.data.process_started ?? true,
-            window_detected: res.data.window_detected ?? false,
-            pid: res.data.pid,
-            hwnd: res.data.hwnd,
-            execution_time_ms: res.data.execution_time_ms,
-            timestamp: res.data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            error: res.data.error,
-          };
-          setDesktopActivities((prev) => [actItem, ...prev]);
-        }
-
-        if (res.requires_confirmation && res.confirmation_id) {
-          setAssistantState('waiting_confirmation');
-          setConfirmationState({
-            isOpen: true,
-            confirmationId: res.confirmation_id,
-            prompt: res.response_text,
-            intent: res.intent,
-            riskLevel: res.risk_level as 'medium' | 'high',
-          });
-          return;
-        }
-
-        // Add to live conversation stream
-        const newTurn: ConversationTurn = {
-          id: Math.random().toString(36).substring(2, 9),
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          user_text: commandText,
-          response_text: res.response_text,
-          intent: res.intent,
-          status: res.status,
-          risk_level: res.risk_level,
-        };
-
-        setConversationHistory((prev) => [newTurn, ...prev]);
-        setAssistantState('speaking');
-
-        if (res.success && ['take_screenshot', 'open_application', 'create_folder', 'multi_command_plan'].includes(res.intent)) {
-          confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
-        }
-
-        // If response is a multi-command task plan, update activePlan
-        if (res.intent === 'multi_command_plan' && res.data) {
-          setActivePlan(res.data as AgentTaskPlan);
-        }
-
-        // Application Launch Confirmation Popup Notification Toast (Single or Multi-Command)
-        const appTask = res.intent === 'multi_command_plan' && res.data?.tasks
-          ? res.data.tasks.find((t: any) => t.intent === 'open_application')
-          : null;
-
-        if (res.intent === 'open_application' || appTask) {
-          const rawApp = (appTask?.application || res.entities?.application || appTask?.data?.app_key || res.data?.app_key || '').toLowerCase();
-          const appDisplayName = appTask?.data?.app_name || res.data?.app_name || (rawApp ? rawApp.charAt(0).toUpperCase() + rawApp.slice(1) : 'Application');
-          const isSuccess = appTask ? (appTask.status === 'completed' || appTask.data?.success) : res.success;
-          const statusStr = (appTask ? appTask.data?.status : res.data?.status) || (isSuccess ? 'Window detected' : 'Launch failed');
-          const execTime = (appTask ? appTask.data?.execution_time_ms : (res.data?.execution_time_ms ?? res.execution_time_ms)) || 0;
-          const errorMsg = (appTask ? (appTask.error || appTask.data?.error) : (res.data?.error || (!isSuccess ? res.response_text : null)));
-          const protocol = appTask ? appTask.data?.client_protocol : res.data?.client_protocol;
-          const webFallback = appTask ? appTask.data?.web_fallback : res.data?.web_fallback;
-
-          setLaunchNotification({
-            isOpen: true,
-            appName: appDisplayName,
-            message: isSuccess ? `${appDisplayName} successfully opened.` : `Failed to launch ${appDisplayName}.`,
-            status: statusStr,
-            executionTimeMs: execTime,
-            isSuccess: !!isSuccess,
-            error: errorMsg,
-            protocol: protocol,
-            webFallback: webFallback,
-            rawApp: rawApp,
-          });
-        }
-
-        // Search Web Automation: Trigger browser search tab (Single or Multi-Command)
-        const searchTask = res.intent === 'multi_command_plan' && res.data?.tasks
-          ? res.data.tasks.find((t: any) => t.intent === 'search_web')
-          : null;
-
-        if (searchTask && (searchTask.status === 'completed' || searchTask.data?.success)) {
-          const searchUrl = searchTask.data?.url || `https://www.google.com/search?q=${encodeURIComponent(searchTask.query || '')}`;
-          try {
-            window.open(searchUrl, '_blank');
-          } catch (launchErr) {
-            console.debug('Search web popup open notice:', launchErr);
-          }
-        } else if (res.intent === 'search_web' && res.success) {
-          const searchUrl = res.data?.url || `https://www.google.com/search?q=${encodeURIComponent(res.entities?.query || '')}`;
-          try {
-            window.open(searchUrl, '_blank');
-          } catch (launchErr) {
-            console.debug('Search web popup open notice:', launchErr);
-          }
-        }
-
-        // Client-side Application Launching (enables real desktop apps to open even when connected to Render cloud)
-        if ((res.intent === 'open_application' || appTask) && (res.success || appTask?.status === 'completed')) {
-          const rawApp = (appTask?.application || res.entities?.application || appTask?.data?.app_key || res.data?.app_key || '').toLowerCase();
-          const protocol = appTask ? appTask.data?.client_protocol : res.data?.client_protocol;
-          const webFallback = appTask ? appTask.data?.web_fallback : res.data?.web_fallback;
-
-          try {
-            if (rawApp.includes('chrome') || rawApp.includes('browser')) {
-              if (!searchTask) {
-                window.open('https://www.google.com', '_blank');
-              }
-            } else if (rawApp.includes('calc')) {
-              const link = document.createElement('a');
-              link.href = 'calculator:';
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            } else if (rawApp.includes('whatsapp')) {
-              const link = document.createElement('a');
-              link.href = 'whatsapp:';
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            } else if (rawApp.includes('code') || rawApp.includes('vs')) {
-              const link = document.createElement('a');
-              link.href = 'vscode:';
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            } else if (rawApp.includes('spotify')) {
-              const link = document.createElement('a');
-              link.href = 'spotify:';
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            } else if (protocol) {
-              const link = document.createElement('a');
-              link.href = protocol;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            } else if (webFallback) {
-              window.open(webFallback, '_blank');
-            }
-          } catch (launchErr) {
-            console.debug('Client protocol launch notice:', launchErr);
-          }
-        }
-
-        // Return to listening if continuous listening mode, else idle
-        setTimeout(() => {
-          setAssistantState((prev) => (prev === 'speaking' ? 'idle' : prev));
-        }, 2500);
-
-        // Refresh reminders or system if relevant
-        if (['set_reminder', 'list_reminders'].includes(res.intent)) {
-          api.getReminders().then(setReminders).catch(() => {});
-        }
+        handleCommandResult(commandText, res);
       } catch (err: any) {
         setAssistantState('error');
         setTimeout(() => setAssistantState('idle'), 3000);
       }
     },
-    [settings.demo_mode]
+    [handleCommandResult, settings.demo_mode]
   );
 
   // Upgraded Voice Recognition hook with persistent streaming & modes
@@ -398,7 +425,7 @@ export function App() {
       api.getReminders().then(setReminders).catch(() => {});
     },
     onCommandResult: (res) => {
-      setLastResult(res);
+      handleCommandResult(res.entities?.command_text || 'Voice Command', res);
     },
     onDesktopActivity: (act) => {
       if (act && act.app_name) {
@@ -554,6 +581,7 @@ export function App() {
               onCancelPlan={handleCancelPlan}
               onRetryTask={handleRetryTask}
               onSelectContact={handleSelectContact}
+              lastResult={lastResult}
             />
           )}
 
@@ -642,7 +670,7 @@ export function App() {
       {/* Application Launch Confirmation Popup Notification Toast */}
       <LaunchNotificationPopup
         notification={launchNotification}
-        onClose={() => setLaunchNotification(null)}
+        onClose={handleCloseLaunchNotification}
         onRetry={(name) => executeCommand(`Open ${name}`)}
       />
     </div>

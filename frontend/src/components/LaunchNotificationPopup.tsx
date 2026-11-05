@@ -37,6 +37,11 @@ export const LaunchNotificationPopup: React.FC<LaunchNotificationPopupProps> = (
   onRetry,
 }) => {
   const [progress, setProgress] = useState(100);
+  const onCloseRef = React.useRef(onClose);
+
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!notification || !notification.isOpen) {
@@ -45,7 +50,7 @@ export const LaunchNotificationPopup: React.FC<LaunchNotificationPopupProps> = (
     }
 
     setProgress(100);
-    const duration = 7000; // 7 seconds auto-dismiss
+    const duration = 8000; // 8 seconds auto-dismiss
     const interval = 50;
     const step = (interval / duration) * 100;
 
@@ -53,7 +58,7 @@ export const LaunchNotificationPopup: React.FC<LaunchNotificationPopupProps> = (
       setProgress((prev) => {
         if (prev <= step) {
           clearInterval(timer);
-          onClose();
+          if (onCloseRef.current) onCloseRef.current();
           return 0;
         }
         return prev - step;
@@ -61,7 +66,7 @@ export const LaunchNotificationPopup: React.FC<LaunchNotificationPopupProps> = (
     }, interval);
 
     return () => clearInterval(timer);
-  }, [notification, onClose]);
+  }, [notification]);
 
   if (!notification || !notification.isOpen) return null;
 
@@ -147,7 +152,7 @@ export const LaunchNotificationPopup: React.FC<LaunchNotificationPopupProps> = (
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full animate-bounce-short select-none">
+    <div className="fixed bottom-6 right-6 z-[9999] max-w-sm w-full animate-bounce-short select-none">
       <div
         className={`relative overflow-hidden rounded-2xl p-5 shadow-2xl backdrop-blur-xl border transition-all duration-300 ${
           isSuccess
