@@ -96,17 +96,34 @@ class CommandService:
             await task_scheduler.broadcast_plan_update(plan)
 
             if plan.requires_confirmation:
+                task_scheduler._active_plans[plan.plan_id] = plan
+                task_planner.pending_confirmation_plan = plan
+
                 prompt_msg = ""
                 if plan.ambiguous_contacts:
                     names_str = " or ".join([c["name"] for c in plan.ambiguous_contacts])
-                    prompt_msg = f"I found {len(plan.ambiguous_contacts)} contacts named {text}: {names_str}. Which one would you like to message?"
+                    target_name = "recipient"
+                    for t in plan.tasks:
+                        if t.intent == "send_message" and t.contact:
+                            target_name = t.contact
+                            break
+                    prompt_msg = f"I found {len(plan.ambiguous_contacts)} contacts named {target_name}: {names_str}. Which one would you like to message?"
                 else:
                     for t in plan.tasks:
                         if t.intent == "send_message":
-                            prompt_msg = f"You want to send '{t.message}' to {t.contact} ({t.phone}). Shall I send it?"
+                            prompt_msg = f"You want to send '{t.message}' to {t.contact} ({t.phone or 'WhatsApp'}). Shall I send it?"
                             break
                     if not prompt_msg:
                         prompt_msg = f"Please confirm you want to proceed with: {plan.summary or text}."
+
+                await event_notification_service.emit_event(
+                    event_type="waiting_confirmation",
+                    title="Please confirm the message.",
+                    message=prompt_msg,
+                    status="Waiting for Confirmation",
+                    plan_id=plan.plan_id,
+                    metadata={"confirmation_id": plan.confirmation_id, "prompt": prompt_msg}
+                )
 
                 history_id = self._log_history(
                     command_text=text,

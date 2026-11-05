@@ -423,3 +423,112 @@ class TestRequiredExecutionScenarios:
         assert "task_completed" in types
         assert "workflow_completed" in types
 
+
+class TestWhatsAppAutomationSuite:
+    """Covers WhatsApp automation, contact resolution, ambiguous contacts, confirmation, and multi-app orchestration."""
+
+    def test_open_whatsapp_intent(self):
+        plan = task_planner.plan_instruction("Open WhatsApp.")
+        assert len(plan.tasks) == 1
+        assert plan.tasks[0].intent == "open_application"
+        assert plan.tasks[0].application == "whatsapp"
+
+    def test_find_contact_ram_ambiguity(self):
+        """Ram matches Ram Sharma and Ram Kumar; must detect ambiguity and not guess."""
+        matched, ambiguous = contact_service.resolve_contact("Ram")
+        assert len(ambiguous) >= 2
+        names = [c["name"] for c in ambiguous]
+        assert "Ram Sharma" in names
+        assert "Ram Kumar" in names
+
+    def test_prepare_message_requests_confirmation(self):
+        """'Open WhatsApp and send Hi to Ram' must produce waiting_confirmation plan."""
+        plan = task_planner.plan_instruction("Open WhatsApp and send Hi to Ram.")
+        assert plan.requires_confirmation is True
+        assert len(plan.ambiguous_contacts) >= 2
+        assert plan.tasks[1].intent == "send_message"
+        assert plan.tasks[1].contact == "Ram"
+        assert plan.tasks[1].message == "Hi"
+
+    @pytest.mark.asyncio
+    async def test_confirm_and_send_message_execution(self):
+        """Confirming sends WhatsApp message and verifies execution."""
+        plan = task_planner.plan_instruction("Open WhatsApp and send Hi to Ram Sharma.")
+        # Specific contact Ram Sharma is unambiguous
+        assert not plan.ambiguous_contacts
+        assert plan.requires_confirmation is True
+        conf_id = plan.confirmation_id
+
+        # Store in scheduler active plans
+        task_scheduler._active_plans[plan.plan_id] = plan
+        task_planner.pending_confirmation_plan = plan
+
+        with patch.object(whatsapp_service, "dispatch_message") as mock_dispatch:
+            mock_dispatch.return_value = (True, "Message delivered to Ram Sharma.", {"status": "sent", "contact": "Ram Sharma"})
+            with patch.object(task_scheduler, "_execute_open_app") as mock_open:
+                async def fake_open(t):
+                    t.status = TaskStatus.COMPLETED
+                mock_open.side_effect = fake_open
+
+                res = await command_service.confirm_and_execute(conf_id, approved=True)
+                assert res.success is True
+                assert res.status == "success"
+
+    def test_missing_contact_handling(self):
+        """Amit does not exist in seed contacts; should report not found."""
+        matched, ambiguous = contact_service.resolve_contact("AmitNonExistent")
+        assert matched is None
+        assert len(ambiguous) == 0
+
+    def test_whatsapp_unavailable_fallback(self):
+        """When native WhatsApp URI fails, web fallback is used."""
+        with patch("os.startfile", side_effect=Exception("Protocol failed")):
+            with patch("webbrowser.open") as mock_web:
+                mock_web.return_value = True
+                success, msg, meta = whatsapp_service.dispatch_message(
+                    phone="+919876543210",
+                    message="Hello",
+                    recipient_name="Test"
+                )
+                assert success is True
+                assert meta.get("method") in ["browser_fallback", "browser_web_fallback", "native_protocol", "web_fallback"]
+
+
+    def test_chrome_search_and_whatsapp_messaging_workflow(self):
+        instruction = "Open Chrome and search about AI, then open WhatsApp and send Hi to Ram."
+        plan = task_planner.plan_instruction(instruction)
+        assert len(plan.tasks) == 4
+        intents = [t.intent for t in plan.tasks]
+        assert intents == ["open_application", "search_web", "open_application", "send_message"]
+
+    def test_notepad_meeting_notes_workflow(self):
+        instruction = "Open Notepad, write today's meeting notes, save the file in Documents, and then open Chrome."
+        plan = task_planner.plan_instruction(instruction)
+        assert len(plan.tasks) >= 3
+        intents = [t.intent for t in plan.tasks]
+        assert "open_application" in intents
+        assert "write_note" in intents
+
+    @pytest.mark.asyncio
+    async def test_cancel_pending_action(self):
+        plan = task_planner.plan_instruction("Open WhatsApp and send Hi to Ram.")
+        task_planner.pending_confirmation_plan = plan
+        task_scheduler._active_plans[plan.plan_id] = plan
+
+        res = await command_service.confirm_and_execute(plan.confirmation_id, approved=False)
+        assert res.intent == "plan_cancelled"
+        assert res.status == "denied"
+        assert "cancelled" in res.response_text.lower()
+
+    def test_automation_registry_api(self):
+        res = client.get("/api/automation/registry")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert len(data["handlers"]) >= 7
+        keys = [h["app_key"] for h in data["handlers"]]
+        assert "whatsapp" in keys
+        assert "chrome" in keys
+        assert "notepad" in keys
+
+

@@ -208,6 +208,8 @@ class TaskScheduler:
                 await self._execute_search_web(task)
             elif task.intent == "send_message":
                 await self._execute_send_message(task)
+            elif task.intent == "write_note":
+                await self._execute_write_note(task)
             elif task.intent == "summarize_results":
                 await self._execute_summarize(task)
             elif task.intent == "take_screenshot":
@@ -365,9 +367,30 @@ class TaskScheduler:
             task.status = TaskStatus.FAILED
             task.error = res.get("message", "Screenshot failed.")
 
+    async def _execute_write_note(self, task: TaskItem):
+        """Writes note and saves to Documents folder via Notepad handler."""
+        from backend.automation.handlers.notepad_handler import NotepadHandler
+        handler = NotepadHandler()
+        async with self._get_gui_lock():
+            success, msg, data = await handler.execute("write_note", task.data or {})
+
+        if success:
+            task.status = TaskStatus.COMPLETED
+            task.result = msg
+            task.data = data
+        else:
+            task.status = TaskStatus.FAILED
+            task.error = msg
+
     def confirm_and_resume_plan(self, plan_id: str, confirmation_id: Optional[str] = None) -> Optional[TaskPlan]:
         """Approves pending tasks in the plan and resumes execution."""
         plan = self._active_plans.get(plan_id)
+        if not plan:
+            from backend.services.task_planner import task_planner
+            if task_planner.pending_confirmation_plan and task_planner.pending_confirmation_plan.plan_id == plan_id:
+                plan = task_planner.pending_confirmation_plan
+                self._active_plans[plan_id] = plan
+
         if not plan:
             return None
 

@@ -79,12 +79,18 @@ export function App() {
     prompt: string;
     intent: string;
     riskLevel: 'medium' | 'high';
+    application?: string;
+    recipient?: string;
+    message?: string;
+    phone?: string;
+    ambiguousContacts?: any[];
   }>({
     isOpen: false,
     confirmationId: '',
     prompt: '',
     intent: '',
     riskLevel: 'high',
+    ambiguousContacts: [],
   });
 
   // Fetch initial data
@@ -164,12 +170,40 @@ export function App() {
 
       if (res.requires_confirmation && res.confirmation_id) {
         setAssistantState('waiting_confirmation');
+
+        let recipient: string | undefined = undefined;
+        let messageText: string | undefined = undefined;
+        let phone: string | undefined = undefined;
+        let appName: string | undefined = undefined;
+        const ambiguous = res.data?.ambiguous_contacts || [];
+
+        if (res.data?.tasks) {
+          const sendTask = res.data.tasks.find((t: any) => t.intent === 'send_message');
+          if (sendTask) {
+            recipient = sendTask.contact;
+            messageText = sendTask.message;
+            phone = sendTask.phone;
+            appName = sendTask.application || 'WhatsApp';
+          }
+        }
+        if (!recipient && res.entities?.contact) {
+          recipient = res.entities.contact as string;
+        }
+        if (!messageText && res.entities?.message) {
+          messageText = res.entities.message as string;
+        }
+
         setConfirmationState({
           isOpen: true,
           confirmationId: res.confirmation_id,
           prompt: res.response_text,
           intent: res.intent,
-          riskLevel: res.risk_level as 'medium' | 'high',
+          riskLevel: (res.risk_level as 'medium' | 'high') || 'medium',
+          application: appName || (res.intent === 'send_message' ? 'WhatsApp' : undefined),
+          recipient,
+          message: messageText,
+          phone,
+          ambiguousContacts: ambiguous,
         });
         return;
       }
@@ -729,12 +763,21 @@ export function App() {
         </main>
       </div>
 
-      {/* Security Confirmation Modal */}
+      {/* Security & Action Confirmation Modal */}
       <ConfirmationModal
         isOpen={confirmationState.isOpen}
         prompt={confirmationState.prompt}
         intent={confirmationState.intent}
         riskLevel={confirmationState.riskLevel}
+        application={confirmationState.application}
+        recipient={confirmationState.recipient}
+        message={confirmationState.message}
+        phone={confirmationState.phone}
+        ambiguousContacts={confirmationState.ambiguousContacts}
+        onSelectContact={(contactName) => {
+          setConfirmationState((prev) => ({ ...prev, isOpen: false }));
+          executeCommand(contactName);
+        }}
         onConfirm={() => handleConfirmAction(true)}
         onCancel={() => handleConfirmAction(false)}
       />

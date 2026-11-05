@@ -454,36 +454,119 @@ class TaskPlanner:
                 status=TaskStatus.PENDING
             ), target_app
 
-        # 3. WhatsApp / Message Intent
-        # Patterns: "send Hi to Ram", "message Ram Hi", "send message to Ram saying hello", "Ram ko Hi bhejo"
-        send_match = re.search(
-            r"\b(?:send|text|message)\s+(?:message\s+)?[\"']?([^\"'\n\r]+?)[\"']?\s+to\s+([a-zA-Z0-9\s]+)",
+        # 3. WhatsApp / Messaging Intent
+        # A. Patterns like: "send a whatsapp message to Ram: I will arrive in 10 minutes"
+        #                   "send a message to Amit saying the meeting is at 5 PM"
+        #                   "send message to Rahul that I am coming"
+        pat_to_saying = re.search(
+            r"\b(?:send|post)\s+(?:a\s+)?(?:whatsapp\s+)?(?:message|text)?\s*(?:to\s+)([a-zA-Z0-9\s]+?)(?::|\s+saying\s+|\s+that\s+|\s+with\s+text\s+)\s*[\"']?([^\"'\n\r]+)[\"']?",
             clause_clean,
             re.IGNORECASE
         )
-        msg_to_match = re.search(
-            r"\b(?:message|tell)\s+([a-zA-Z0-9\s]+)\s+[\"']?([^\"'\n\r]+?)[\"']?$",
+        # B. Patterns like: "message Ram saying Hi"
+        #                   "message Rahul that I am coming"
+        #                   "tell Mom that I will call later"
+        pat_msg_saying = re.search(
+            r"\b(?:message|tell|whatsapp)\s+([a-zA-Z0-9\s]+?)\s+(?:saying|that|ki)\s+[\"']?([^\"'\n\r]+)[\"']?",
             clause_clean,
             re.IGNORECASE
         )
-        hindi_msg_match = re.search(
-            r"([a-zA-Z0-9\s]+)\s+ko\s+[\"']?([^\"'\n\r]+?)[\"']?\s+(?:message\s+)?(?:bhejo|karo)",
+        # C. Patterns with colon: "message Ram: Hi" or "tell Mom: I will call later"
+        pat_colon = re.search(
+            r"\b(?:send\s+message\s+to|message|tell|whatsapp)\s+([a-zA-Z0-9\s]+?)\s*:\s*[\"']?([^\"'\n\r]+)[\"']?",
+            clause_clean,
+            re.IGNORECASE
+        )
+        # D. "find Ram and send him Hello" or "find Ram and send Hello"
+        pat_find_send = re.search(
+            r"\b(?:find|search\s+for)\s+([a-zA-Z0-9\s]+?)\s+(?:and\s+)?send\s+(?:him|her|them)?\s*[\"']?([^\"'\n\r]+)[\"']?",
+            clause_clean,
+            re.IGNORECASE
+        )
+        # E. "send Hi to Ram" / "text Hi to Ram"
+        pat_send_to = re.search(
+            r"\b(?:send|text|message)\s+[\"']?([^\"'\n\r]+?)[\"']?\s+to\s+([a-zA-Z0-9\s]+)",
+            clause_clean,
+            re.IGNORECASE
+        )
+        # F. "tell Mom I will call later" (direct tell without saying/that)
+        pat_tell_direct = re.search(
+            r"\b(?:tell)\s+([a-zA-Z0-9]+)\s+[\"']?([^\"'\n\r]+)[\"']?$",
+            clause_clean,
+            re.IGNORECASE
+        )
+        # G. "message Ram Hi" / "whatsapp Rahul Hello"
+        pat_msg_direct = re.search(
+            r"\b(?:message|whatsapp)\s+([a-zA-Z0-9]+)\s+[\"']?([^\"'\n\r]+)[\"']?$",
+            clause_clean,
+            re.IGNORECASE
+        )
+        # H. Hindi: "Rahul ko message bhejo: I am coming" / "Ram ko Hi bhejo"
+        pat_hindi_bhejo = re.search(
+            r"([a-zA-Z0-9\s]+?)\s+ko\s+(?:whatsapp\s+)?(?:message\s+)?(?:bhejo|karo)\s*(?:ki|:)?\s*[\"']?([^\"'\n\r]+)[\"']?",
+            clause_clean,
+            re.IGNORECASE
+        )
+        pat_hindi_msg = re.search(
+            r"([a-zA-Z0-9\s]+?)\s+ko\s+[\"']?([^\"'\n\r]+?)[\"']?\s+(?:message\s+)?(?:bhejo|karo)",
             clause_clean,
             re.IGNORECASE
         )
 
-        if send_match:
-            msg_content = send_match.group(1).strip()
-            contact_name = send_match.group(2).strip()
+        if pat_to_saying:
+            contact_name = pat_to_saying.group(1).strip()
+            msg_content = pat_to_saying.group(2).strip()
             return self._build_message_task(task_id, contact_name, msg_content)
-        elif msg_to_match:
-            contact_name = msg_to_match.group(1).strip()
-            msg_content = msg_to_match.group(2).strip()
+        elif pat_msg_saying:
+            contact_name = pat_msg_saying.group(1).strip()
+            msg_content = pat_msg_saying.group(2).strip()
             return self._build_message_task(task_id, contact_name, msg_content)
-        elif hindi_msg_match:
-            contact_name = hindi_msg_match.group(1).strip()
-            msg_content = hindi_msg_match.group(2).strip()
+        elif pat_colon:
+            contact_name = pat_colon.group(1).strip()
+            msg_content = pat_colon.group(2).strip()
             return self._build_message_task(task_id, contact_name, msg_content)
+        elif pat_find_send:
+            contact_name = pat_find_send.group(1).strip()
+            msg_content = pat_find_send.group(2).strip()
+            return self._build_message_task(task_id, contact_name, msg_content)
+        elif pat_send_to:
+            contact_name = pat_send_to.group(2).strip()
+            msg_content = pat_send_to.group(1).strip()
+            return self._build_message_task(task_id, contact_name, msg_content)
+        elif pat_tell_direct:
+            contact_name = pat_tell_direct.group(1).strip()
+            msg_content = pat_tell_direct.group(2).strip()
+            return self._build_message_task(task_id, contact_name, msg_content)
+        elif pat_msg_direct:
+            contact_name = pat_msg_direct.group(1).strip()
+            msg_content = pat_msg_direct.group(2).strip()
+            return self._build_message_task(task_id, contact_name, msg_content)
+        elif pat_hindi_bhejo:
+            contact_name = pat_hindi_bhejo.group(1).strip()
+            msg_content = pat_hindi_bhejo.group(2).strip()
+            return self._build_message_task(task_id, contact_name, msg_content)
+        elif pat_hindi_msg:
+            contact_name = pat_hindi_msg.group(1).strip()
+            msg_content = pat_hindi_msg.group(2).strip()
+            return self._build_message_task(task_id, contact_name, msg_content)
+
+        # 3b. Notepad / Writing Notes Intent
+        write_note_match = re.search(
+            r"\b(?:write|take|create)\s+(?:today's\s+|my\s+)?(?:meeting\s+)?(?:notes|note|text)\b\s*(.*)$",
+            clause_clean,
+            re.IGNORECASE
+        )
+        if write_note_match or "meeting notes" in clause_lower or "save the file in documents" in clause_lower:
+            notes_text = write_note_match.group(1).strip() if (write_note_match and write_note_match.group(1).strip()) else "Meeting Notes: Discussed AI Desktop Automation upgrades."
+            return TaskItem(
+                id=task_id,
+                title="Write Meeting Notes in Notepad",
+                intent="write_note",
+                application="notepad",
+                data={"text": notes_text, "filename": "meeting_notes.txt", "folder": "Documents"},
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), "notepad"
 
         # 4. Summarization Intent (Standalone step)
         if should_summarize:

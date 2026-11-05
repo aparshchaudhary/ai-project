@@ -875,3 +875,26 @@ def resolve_contact_query(q: str = Query(..., description="Name or relationship 
         "count": len(candidates)
     }
 
+
+# ==========================================
+# 13. Universal Automation Registry Endpoints
+# ==========================================
+
+@router.get("/automation/registry")
+def get_automation_registry():
+    """Returns all registered application handlers and their capabilities."""
+    from backend.automation.registry import automation_registry
+    return {
+        "success": True,
+        "handlers": automation_registry.list_handlers(),
+        "total_handlers": len(automation_registry._handlers)
+    }
+
+
+@router.get("/automation/handlers")
+def list_automation_handlers():
+    """Lists capability summaries for quick frontend consumption."""
+    from backend.automation.registry import automation_registry
+    return automation_registry.list_handlers()
+
+
