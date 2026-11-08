@@ -386,6 +386,108 @@ class NLPService:
                 original_text=text
             )
 
+        # 11b. Desktop Calling & Telephony (English, Hindi, Hinglish, Punjabi, German)
+        if any(w in clean_text for w in ["end call", "hang up", "call kaato", "beende den anruf", "beende anruf", "call band karo"]):
+            return IntentResult(
+                intent="end_call",
+                entities={},
+                confidence=0.98,
+                risk_level="low",
+                original_text=text
+            )
+
+        call_match = re.search(
+            r"\b(?:call|phone|make a call to|dial|rufe|ruf|lagao call)\s+([a-zA-Z0-9\s]+?)(?:\s+(?:an|on\s+whatsapp|via\s+whatsapp|with\s+whatsapp))?$",
+            clean_text,
+            re.IGNORECASE
+        )
+        hindi_call_match = re.search(
+            r"([a-zA-Z0-9\s]+?)\s+(?:ko|nu)\s+(?:whatsapp\s+)?(?:call\s+lagao|phone\s+karo|call\s+karo)",
+            clean_text,
+            re.IGNORECASE
+        )
+        if call_match or hindi_call_match:
+            raw_contact = hindi_call_match.group(1).strip() if hindi_call_match else call_match.group(1).strip()
+            # Clean contact
+            clean_contact = re.sub(r"\b(this number|number|ko|nu|an)\b", "", raw_contact, flags=re.IGNORECASE).strip()
+            provider = "whatsapp" if "whatsapp" in clean_text else "phone_link"
+            return IntentResult(
+                intent="make_call",
+                entities={"contact": clean_contact, "provider": provider, "call_type": "voice"},
+                confidence=0.96,
+                requires_confirmation=True,
+                risk_level="medium",
+                confirmation_prompt=f"Are you sure you want to call {clean_contact}?",
+                original_text=text
+            )
+
+        # 11c. Computer Vision Mode & Screen Understanding
+        if any(w in clean_text for w in [
+            "analyze my screen", "analyze screen", "explain this error", "what is displayed on my screen",
+            "what is on my screen", "find the login button", "help me understand this page",
+            "screen analyze karo", "yeh error samjhao", "analysiere meinen bildschirm", "erkläre diesen fehler"
+        ]):
+            return IntentResult(
+                intent="analyze_screen",
+                entities={"query": clean_text},
+                confidence=0.97,
+                risk_level="low",
+                original_text=text
+            )
+
+        # 11d. Productivity Modes & Timers
+        if any(w in clean_text for w in ["study mode", "work mode", "focus mode", "pomodoro"]):
+            if any(w in clean_text for w in ["stop", "end", "cancel", "band karo"]):
+                return IntentResult(
+                    intent="stop_productivity_mode",
+                    entities={},
+                    confidence=0.98,
+                    risk_level="low",
+                    original_text=text
+                )
+            mode = "focus_mode"
+            duration = 25
+            if "study" in clean_text:
+                mode = "study_mode"
+                duration = 45
+            elif "work" in clean_text:
+                mode = "work_mode"
+                duration = 60
+
+            return IntentResult(
+                intent="productivity_mode",
+                entities={"mode": mode, "duration": duration},
+                confidence=0.97,
+                risk_level="low",
+                original_text=text
+            )
+
+        # 11e. Personal Memory System
+        if any(clean_text.startswith(w) for w in ["remember that", "remember my", "remember ", "yaad rakhna ki", "yaad rakho"]):
+            fact = clean_text.replace("remember that", "").replace("remember my", "").replace("remember", "").replace("yaad rakhna ki", "").replace("yaad rakho", "").strip()
+            key = "preference"
+            val = fact
+            if "is" in fact:
+                parts = fact.split("is", 1)
+                key = parts[0].strip()
+                val = parts[1].strip()
+            return IntentResult(
+                intent="save_memory",
+                entities={"key": key, "value": val, "category": "preference"},
+                confidence=0.95,
+                risk_level="low",
+                original_text=text
+            )
+
+        if any(w in clean_text for w in ["what do you remember", "my memories", "recall memory", "kya yaad hai"]):
+            return IntentResult(
+                intent="recall_memory",
+                entities={},
+                confidence=0.95,
+                risk_level="low",
+                original_text=text
+            )
+
         # 12. Reminders (English & Hindi)
         if any(w in clean_text for w in [
             "show reminders", "list reminders", "what are my reminders", "get reminders",
@@ -617,17 +719,17 @@ class NLPService:
             flags=re.IGNORECASE
         ).strip()
 
-        # If candidate contains conjunctions or action words (e.g. "search", "what is"), don't treat the entire phrase as an application
-        if any(w in clean for w in ["search", "dhoondo", "dhoondho", "khojo", "what is", "send", "message", "bhejo"]):
+        # If candidate contains conjunctions or action words (e.g. "search", "what is", "call", "send"), don't treat the entire phrase as an application
+        if any(w in clean for w in ["search", "dhoondo", "dhoondho", "khojo", "what is", "send", "message", "bhejo", "call", "phone", "dial", "write"]):
             app_sub = re.match(
-                r"^([a-zA-Z0-9\s]+?)\s*(?:\b(?:and\s+then|then|after\s+that|and|an|&|aur|phir)\b|,|\s)\s*(?:search|what|send|message|dhoondo|dhoondho|khojo)\b",
+                r"^([a-zA-Z0-9\s]+?)\s*(?:\b(?:and\s+then|then|after\s+that|and|an|&|aur|phir)\b|,|\s)\s*(?:search|what|send|message|call|phone|dhoondo|dhoondho|khojo)\b",
                 clean
             )
             if app_sub:
                 clean = app_sub.group(1).strip()
             else:
                 for k in ["chrome", "whatsapp", "notepad", "calculator", "explorer", "spotify", "code", "browser", "browsre"]:
-                    if k in clean:
+                    if re.search(rf"\b{re.escape(k)}\b", clean):
                         return "chrome" if ("brows" in k or "chrom" in k) else k
                 return ""
 
@@ -687,7 +789,15 @@ class NLPService:
             return mapping[clean]
 
         import difflib
-        matches = difflib.get_close_matches(clean, list(mapping.keys()), n=1, cutoff=0.72)
+        stop_words = {
+            "what", "who", "when", "where", "why", "how", "the", "a", "an", "is", "it",
+            "in", "on", "for", "at", "to", "of", "and", "or", "my", "your", "this",
+            "that", "me", "him", "her", "them", "all", "so", "as", "if", "about", "with"
+        }
+        if clean in stop_words or len(clean) < 3:
+            return ""
+
+        matches = difflib.get_close_matches(clean, list(mapping.keys()), n=1, cutoff=0.80)
         if matches:
             return mapping[matches[0]]
 

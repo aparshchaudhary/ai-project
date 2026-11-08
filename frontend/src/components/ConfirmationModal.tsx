@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ShieldCheck, X, Send, User, MessageCircle } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, X, Send, User, MessageCircle, PhoneCall } from 'lucide-react';
 
 export interface AmbiguousContactItem {
   id?: number;
@@ -41,11 +41,14 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   if (!isOpen) return null;
 
   const isHighRisk = riskLevel === 'high';
+  const isCallAction = Boolean(intent === 'make_call' || (application && application.toLowerCase().includes('calling')));
   const isMessageAction = Boolean(
-    recipient ||
-    message ||
-    intent === 'send_message' ||
-    (application && application.toLowerCase().includes('whatsapp'))
+    !isCallAction && (
+      recipient ||
+      message ||
+      intent === 'send_message' ||
+      (application && application.toLowerCase().includes('whatsapp'))
+    )
   );
   const hasAmbiguous = Boolean(ambiguousContacts && ambiguousContacts.length > 0);
 
@@ -56,14 +59,18 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         <div className="flex items-start gap-4">
           <div
             className={`p-3 rounded-xl flex-shrink-0 ${
-              isMessageAction
+              isCallAction
+                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                : isMessageAction
                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                 : isHighRisk
                 ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                 : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
             }`}
           >
-            {isMessageAction ? (
+            {isCallAction ? (
+              <PhoneCall className="w-7 h-7" />
+            ) : isMessageAction ? (
               <MessageCircle className="w-7 h-7" />
             ) : (
               <AlertTriangle className="w-7 h-7" />
@@ -73,22 +80,26 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             <div className="flex items-center gap-2">
               <span
                 className={`text-xs uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
-                  isMessageAction
+                  isCallAction
+                    ? 'bg-blue-500/20 text-blue-300'
+                    : isMessageAction
                     ? 'bg-emerald-500/20 text-emerald-300'
                     : isHighRisk
                     ? 'bg-red-500/20 text-red-300'
                     : 'bg-amber-500/20 text-amber-300'
                 }`}
               >
-                {isMessageAction ? 'Message Confirmation' : `${riskLevel} Risk Action`}
+                {isCallAction ? 'Call Confirmation' : isMessageAction ? 'Message Confirmation' : `${riskLevel} Risk Action`}
               </span>
               <span className="text-xs text-slate-400 font-mono">
-                {intent || (isMessageAction ? 'send_message' : 'security_check')}
+                {intent || (isCallAction ? 'make_call' : isMessageAction ? 'send_message' : 'security_check')}
               </span>
             </div>
             <h3 className="text-lg font-bold text-white mt-1">
               {hasAmbiguous
-                ? 'Select Recipient Contact'
+                ? 'Select Contact'
+                : isCallAction
+                ? 'Confirm Outgoing Call'
                 : isMessageAction
                 ? 'Confirm WhatsApp Message'
                 : 'Safety Confirmation Required'}
@@ -106,7 +117,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         {hasAmbiguous ? (
           <div className="mt-4 space-y-3">
             <p className="text-slate-300 text-sm">
-              {prompt || `Multiple contacts found. Please select the correct recipient:`}
+              {prompt || `Multiple contacts found. Please select the recipient:`}
             </p>
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
               {ambiguousContacts.map((c) => (
@@ -140,6 +151,47 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
                 className="px-4 py-2 rounded-xl text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        ) : isCallAction ? (
+          /* Structured Call Confirmation Format */
+          <div className="mt-4 space-y-4">
+            <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800/80 space-y-2.5">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400 font-medium">Contact:</span>
+                <span className="text-white font-semibold">
+                  {recipient || 'Contact'}{' '}
+                  {phone ? <span className="text-blue-400 text-xs font-mono">({phone})</span> : null}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400 font-medium">Provider:</span>
+                <span className="text-blue-400 font-semibold">{application || 'Phone Link / WhatsApp'}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400 font-medium">Call Type:</span>
+                <span className="text-slate-200">Voice Call</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              The assistant will activate the telephony interface on your desktop to place this call after your explicit approval.
+            </p>
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                onClick={onCancel}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onConfirm}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white shadow-lg flex items-center gap-2 bg-blue-600 hover:bg-blue-500 shadow-blue-600/30 transition"
+              >
+                <PhoneCall className="w-4 h-4" />
+                Confirm and Call
               </button>
             </div>
           </div>
@@ -226,3 +278,4 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
     </div>
   );
 };
+

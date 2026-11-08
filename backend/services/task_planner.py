@@ -119,6 +119,8 @@ class TaskPlanner:
             "open", "launch", "start", "kholo", "chalao",
             "search", "find", "google", "look up", "dhoondho", "dhoondo", "khojo",
             "send", "message", "text", "whatsapp", "bhejo",
+            "call", "phone", "dial",
+            "write", "note", "likho",
             "summarize", "summary", "explain",
             "screenshot", "capture",
             "close", "band karo"
@@ -128,7 +130,7 @@ class TaskPlanner:
                 found_verbs.append(v)
 
         if ("open" in found_verbs or "launch" in found_verbs or "kholo" in found_verbs) and \
-           any(v in found_verbs for v in ["search", "find", "google", "dhoondho", "dhoondo", "khojo", "send", "message", "bhejo", "screenshot"]):
+           any(v in found_verbs for v in ["search", "find", "google", "dhoondho", "dhoondo", "khojo", "send", "message", "bhejo", "call", "screenshot", "write"]):
             return True
 
         return len(found_verbs) >= 2
@@ -141,7 +143,11 @@ class TaskPlanner:
         clean_text = text.strip().rstrip(".!?,;:")
         normalized = re.sub(r"\s+", " ", clean_text)
 
-        # 1. If user explicitly wrote "Open Chrome and WhatsApp [simultaneously]"
+        # 1. Atomic contact-action pattern (e.g. "Find Rahul in my contacts and call him" / "Find Ram and send him Hello")
+        if re.search(r"\bfind\s+[a-zA-Z0-9\s]+?\s+(?:in\s+(?:my\s+)?contacts\s+and\s+|and\s+)(?:call|phone|send|message)\b", normalized, re.IGNORECASE):
+            return [normalized]
+
+        # 2. If user explicitly wrote "Open Chrome and WhatsApp [simultaneously]"
         clean_no_simul = re.sub(
             r"\s+\b(?:simultaneously|together|ek saath|saath hi|at the same time)\b.*$",
             "",
@@ -156,10 +162,10 @@ class TaskPlanner:
         if multi_open_match:
             app1 = multi_open_match.group(1).strip()
             app2 = multi_open_match.group(2).strip()
-            if self._identify_app(app1) and self._identify_app(app2):
+            if not self._has_action_verb(app2) and self._identify_app(app1) and self._identify_app(app2):
                 return [f"open {app1}", f"open {app2}"]
 
-        # 2. Split on strong sequential markers first
+        # 3. Split on strong sequential markers first
         parts = re.split(
             r"\b(?:and\s+then|then|after\s+that|aur\s+phir|phir|uske\s+baad|saath\s+hi|ek\s+saath|simultaneously)\b",
             normalized,
@@ -169,7 +175,7 @@ class TaskPlanner:
         compound_action_pat = (
             r"^(?:open|launch|start|run|kholo|chalao)\s+([a-zA-Z0-9\s]+?)\s*"
             r"(?:\b(?:and\s+then|then|after\s+that|and|an|&|aur|phir)\b|,|\s)\s*"
-            r"(?:and\s+|an\s+|then\s+)?(search\s+for|search\s+about|search|find|google|look\s+up|dhoondho|dhoondo|khojo|send\s+message|send|message|text|screenshot|take\s+screenshot|write)\b\s*(.*)$"
+            r"(?:and\s+|an\s+|then\s+)?(search\s+for|search\s+about|search|find|google|look\s+up|dhoondho|dhoondo|khojo|send\s+message|send|message|text|screenshot|take\s+screenshot|write|call|phone|dial)\b\s*(.*)$"
         )
         pat_hindi = (
             r"^([a-zA-Z0-9\s]+?)\s+(?:kholo|chalao)\s*"
@@ -234,6 +240,8 @@ class TaskPlanner:
             "open", "launch", "start", "run", "kholo", "chalao",
             "search", "find", "google", "look up", "dhoondho", "dhoondo", "khojo",
             "send", "message", "text", "whatsapp", "bhejo",
+            "call", "phone", "dial",
+            "write", "note", "likho",
             "summarize", "summary", "explain",
             "screenshot", "capture", "photo",
             "close", "band karo"
@@ -247,22 +255,45 @@ class TaskPlanner:
 
     def _identify_app(self, text: str) -> Optional[str]:
         clean = text.lower().strip()
-        # 1. Exact or substring match in canonical map
+        if not clean:
+            return None
+
+        # If candidate contains action words (e.g. "search", "what is", "send", "call"), don't treat the entire phrase as an application
+        if any(w in clean for w in ["search", "dhoondo", "dhoondho", "khojo", "what is", "send", "message", "bhejo", "call", "phone", "dial", "write"]):
+            app_sub = re.match(
+                r"^([a-zA-Z0-9\s]+?)\s*(?:\b(?:and\s+then|then|after\s+that|and|an|&|aur|phir)\b|,|\s)\s*(?:search|what|send|message|call|phone|dhoondo)\b",
+                clean
+            )
+            if app_sub:
+                clean = app_sub.group(1).strip()
+            else:
+                for k in ["chrome", "whatsapp", "notepad", "calculator", "explorer", "spotify", "code", "browser", "browsre"]:
+                    if re.search(rf"\b{re.escape(k)}\b", clean):
+                        return "chrome" if ("brows" in k or "chrom" in k) else k
+                return None
+
+        # 1. Exact or whole-word match in canonical map
         for alias, canonical in APP_CANONICAL_MAP.items():
             if re.search(rf"\b{re.escape(alias)}\b", clean):
                 return canonical
 
         # 2. Fuzzy match against canonical names and aliases (handles typos like 'browsre', 'chorme')
         import difflib
-        tokens = clean.split()
+        stop_words = {
+            "what", "who", "when", "where", "why", "how", "the", "a", "an", "is", "it",
+            "in", "on", "for", "at", "to", "of", "and", "or", "my", "your", "this",
+            "that", "me", "him", "her", "them", "all", "so", "as", "if", "about", "with"
+        }
+        tokens = [tok for tok in clean.split() if tok not in stop_words and len(tok) >= 4]
         for tok in tokens:
-            matches = difflib.get_close_matches(tok, APP_CANONICAL_MAP.keys(), n=1, cutoff=0.72)
+            matches = difflib.get_close_matches(tok, APP_CANONICAL_MAP.keys(), n=1, cutoff=0.80)
             if matches:
                 return APP_CANONICAL_MAP[matches[0]]
 
-        matches = difflib.get_close_matches(clean, APP_CANONICAL_MAP.keys(), n=1, cutoff=0.72)
-        if matches:
-            return APP_CANONICAL_MAP[matches[0]]
+        if clean not in stop_words and len(clean) >= 4:
+            matches = difflib.get_close_matches(clean, APP_CANONICAL_MAP.keys(), n=1, cutoff=0.80)
+            if matches:
+                return APP_CANONICAL_MAP[matches[0]]
 
         return None
 
@@ -320,7 +351,7 @@ class TaskPlanner:
                     task_item.depends_on = [last_task_id] if last_task_id else []
 
             # Check for contact resolution and confirmation requirements
-            if task_item.intent == "send_message" and task_item.contact:
+            if task_item.intent in ["send_message", "make_call"] and task_item.contact:
                 matched, ambiguous = contact_service.resolve_contact(task_item.contact)
                 if ambiguous and len(ambiguous) > 1:
                     plan_requires_conf = True
@@ -328,7 +359,8 @@ class TaskPlanner:
                     self.conversation_context["awaiting_ambiguity"] = {
                         "task_id": task_id,
                         "candidates": ambiguous,
-                        "message": task_item.message
+                        "message": task_item.message,
+                        "intent": task_item.intent
                     }
                     task_item.status = TaskStatus.WAITING_CONFIRMATION
                     task_item.error = f"Multiple contacts found for '{task_item.contact}'"
@@ -427,8 +459,9 @@ class TaskPlanner:
         )
 
         should_summarize = bool(re.search(r"\b(?:summarize|summary|batao|explain)\b", clause_lower))
+        is_calling_intent = any(w in clause_lower for w in ["call", "phone", "dial", "call lagao", "phone karo"]) or ("contacts" in clause_lower and "find" in clause_lower)
 
-        if hindi_search_match or search_match:
+        if (hindi_search_match or search_match) and not is_calling_intent:
             raw_query = hindi_search_match.group(1) if hindi_search_match else search_match.group(1)
             # Clean up query
             clean_query = re.sub(
@@ -453,6 +486,46 @@ class TaskPlanner:
                 risk_level="low",
                 status=TaskStatus.PENDING
             ), target_app
+
+        # 2b. Calling Intent (English, Hindi, Punjabi, German)
+        find_call_match = re.search(
+            r"\bfind\s+([a-zA-Z0-9\s]+?)\s+(?:in\s+(?:my\s+)?contacts\s+and\s+|and\s+)(?:call|phone)\s*(?:him|her|them)?(?:\s+(?:on|via|with)\s+(whatsapp|phone|skype|teams))?$",
+            clause_clean,
+            re.IGNORECASE
+        )
+        call_match = re.search(
+            r"\b(?:call|phone|make a call to|dial|rufe|ruf|lagao call)\s+([a-zA-Z0-9\s]+?)(?:\s+(?:an|on\s+whatsapp|via\s+whatsapp|with\s+whatsapp))?$",
+            clause_clean,
+            re.IGNORECASE
+        )
+        hindi_call_match = re.search(
+            r"([a-zA-Z0-9\s]+?)\s+(?:ko|nu)\s+(?:whatsapp\s+)?(?:call\s+lagao|phone\s+karo|call\s+karo)",
+            clause_clean,
+            re.IGNORECASE
+        )
+        if (find_call_match or call_match or hindi_call_match) and not any(w in clause_lower for w in ["later", "saying", "that", "ki", "message"]):
+            raw_contact = ""
+            if find_call_match:
+                raw_contact = find_call_match.group(1).strip()
+            elif hindi_call_match:
+                raw_contact = hindi_call_match.group(1).strip()
+            elif call_match:
+                raw_contact = call_match.group(1).strip()
+
+            clean_contact = re.sub(r"\b(this number|number|him|her|them|ko|nu|an|my contacts|contacts)\b", "", raw_contact, flags=re.IGNORECASE).strip()
+            if clean_contact:
+                provider = "whatsapp" if ("whatsapp" in clause_lower or current_app_context == "whatsapp") else "phone_link"
+                return TaskItem(
+                    id=task_id,
+                    title=f"Call {clean_contact}",
+                    intent="make_call",
+                    application=provider,
+                    contact=clean_contact,
+                    requires_confirmation=True,
+                    risk_level="medium",
+                    status=TaskStatus.PENDING,
+                    data={"provider": provider, "contact": clean_contact}
+                ), provider
 
         # 3. WhatsApp / Messaging Intent
         # A. Patterns like: "send a whatsapp message to Ram: I will arrive in 10 minutes"
@@ -567,6 +640,7 @@ class TaskPlanner:
                 risk_level="low",
                 status=TaskStatus.PENDING
             ), "notepad"
+
 
         # 4. Summarization Intent (Standalone step)
         if should_summarize:

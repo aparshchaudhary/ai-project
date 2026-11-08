@@ -20,6 +20,9 @@ from backend.automation.handlers.vscode_handler import VSCodeHandler
 from backend.automation.handlers.explorer_handler import ExplorerHandler
 from backend.automation.handlers.calculator_handler import CalculatorHandler
 from backend.automation.handlers.spotify_handler import SpotifyHandler
+from backend.automation.handlers.calling_handler import CallingHandler
+from backend.automation.handlers.file_handler import FileHandler
+from backend.automation.handlers.office_handler import WordHandler, ExcelHandler, PowerPointHandler
 from backend.services.desktop_window_manager import desktop_window_manager
 
 logger = logging.getLogger(__name__)
@@ -38,7 +41,12 @@ class AutomationRegistry:
             VSCodeHandler(),
             ExplorerHandler(),
             CalculatorHandler(),
-            SpotifyHandler()
+            SpotifyHandler(),
+            CallingHandler(),
+            FileHandler(),
+            WordHandler(),
+            ExcelHandler(),
+            PowerPointHandler()
         ]
         for handler in defaults:
             self.register_handler(handler)
@@ -66,7 +74,20 @@ class AutomationRegistry:
             "file explorer": "explorer",
             "files": "explorer",
             "notes": "notepad",
-            "text editor": "notepad"
+            "text editor": "notepad",
+            "call": "calling",
+            "phone": "calling",
+            "telephony": "calling",
+            "file": "file_manager",
+            "files": "file_manager",
+            "folder": "file_manager",
+            "ms word": "word",
+            "microsoft word": "word",
+            "ms excel": "excel",
+            "microsoft excel": "excel",
+            "powerpoint": "powerpoint",
+            "ms powerpoint": "powerpoint",
+            "ppt": "powerpoint"
         }
         if clean in alias_map and alias_map[clean] in self._handlers:
             return self._handlers[alias_map[clean]]

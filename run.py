@@ -41,14 +41,14 @@ def main():
 
 
     print("=" * 70)
-    print("  AURA AI VOICE COMMAND ASSISTANT - DESKTOP SYSTEM")
+    print(f"  {settings.app_name.upper()} - UNIVERSAL DESKTOP AUTOMATION")
     print("=" * 70)
     print(f" * Dashboard UI & API:  {app_url}")
     print(f" * WebSocket Endpoint:  ws://{args.host}:{args.port}/ws/assistant")
     print(f" * API Documentation:   {app_url}/docs")
     print(f" * Data Directory:      {settings.data_dir}")
     print(f" * Screenshots Folder:  {settings.screenshots_dir}")
-    print(f" * Language Support:    English & Hindi (Hinglish)")
+    print(f" * Language Support:    English, Hindi, Hinglish, Punjabi, German")
     print(f" * Wake-Word Detection: \"{settings.wake_word}\"")
     print("=" * 70)
     print(" Starting server... Press Ctrl+C to terminate.\n")

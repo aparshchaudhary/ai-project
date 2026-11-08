@@ -16,8 +16,8 @@ SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class Settings(BaseModel):
-    app_name: str = "Aura AI Voice Assistant"
-    app_version: str = "1.0.0"
+    app_name: str = os.getenv("AGENT_NAME", os.getenv("APP_NAME", "Desktop AI Agent"))
+    app_version: str = "2.3.0"
     host: str = "127.0.0.1"
     port: int = 8000
     base_dir: Path = BASE_DIR

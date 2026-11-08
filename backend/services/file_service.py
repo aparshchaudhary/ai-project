@@ -190,5 +190,138 @@ class FileService:
         except Exception as e:
             return False, f"Error deleting '{target_path.name}': {str(e)}"
 
+    def rename_file(self, target: str, new_name: str) -> Tuple[bool, str, Optional[str]]:
+        matches = self.search_files(query=target, max_results=1)
+        target_path = Path(matches[0]["path"]) if matches else Path(target)
+        if not target_path.exists():
+            return False, f"Could not find '{target}' to rename.", None
+
+        if not security_service.is_safe_path(target_path):
+            return False, "Access restricted: Cannot rename system files.", None
+
+        clean_new = new_name.strip(" /\\\"'")
+        new_path = target_path.parent / clean_new
+        if not security_service.is_safe_path(new_path):
+            return False, "Access restricted: Invalid target path.", None
+
+        try:
+            target_path.rename(new_path)
+            return True, f"Renamed '{target_path.name}' to '{clean_new}'.", str(new_path.resolve())
+        except Exception as e:
+            return False, f"Failed to rename file: {e}", None
+
+    def copy_file(self, target: str, destination_folder: str) -> Tuple[bool, str, Optional[str]]:
+        import shutil
+        matches = self.search_files(query=target, max_results=1)
+        src_path = Path(matches[0]["path"]) if matches else Path(target)
+        if not src_path.exists():
+            return False, f"Could not find source '{target}'.", None
+
+        parent_map = {
+            "documents": Path.home() / "Documents",
+            "desktop": Path.home() / "Desktop",
+            "downloads": Path.home() / "Downloads",
+            "pictures": Path.home() / "Pictures",
+        }
+        dest_base = parent_map.get(destination_folder.lower(), Path(destination_folder))
+        if not dest_base.exists():
+            dest_base.mkdir(parents=True, exist_ok=True)
+
+        dest_path = dest_base / src_path.name
+        if not security_service.is_safe_path(src_path) or not security_service.is_safe_path(dest_path):
+            return False, "Access denied: Restrictive filesystem boundary.", None
+
+        try:
+            if src_path.is_dir():
+                shutil.copytree(src_path, dest_path, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src_path, dest_path)
+            return True, f"Copied '{src_path.name}' to {dest_base.name}.", str(dest_path.resolve())
+        except Exception as e:
+            return False, f"Failed to copy '{src_path.name}': {e}", None
+
+    def move_file(self, target: str, destination_folder: str) -> Tuple[bool, str, Optional[str]]:
+        import shutil
+        matches = self.search_files(query=target, max_results=1)
+        src_path = Path(matches[0]["path"]) if matches else Path(target)
+        if not src_path.exists():
+            return False, f"Could not find source '{target}'.", None
+
+        parent_map = {
+            "documents": Path.home() / "Documents",
+            "desktop": Path.home() / "Desktop",
+            "downloads": Path.home() / "Downloads",
+            "pictures": Path.home() / "Pictures",
+        }
+        dest_base = parent_map.get(destination_folder.lower(), Path(destination_folder))
+        if not dest_base.exists():
+            dest_base.mkdir(parents=True, exist_ok=True)
+
+        dest_path = dest_base / src_path.name
+        if not security_service.is_safe_path(src_path) or not security_service.is_safe_path(dest_path):
+            return False, "Access denied: Target path outside authorized safe directories.", None
+
+        try:
+            shutil.move(src_path, dest_path)
+            return True, f"Moved '{src_path.name}' to {dest_base.name}.", str(dest_path.resolve())
+        except Exception as e:
+            return False, f"Failed to move '{src_path.name}': {e}", None
+
+    def get_file_metadata(self, target: str) -> Tuple[bool, str, Dict[str, Any]]:
+        import time
+        matches = self.search_files(query=target, max_results=1)
+        p = Path(matches[0]["path"]) if matches else Path(target)
+        if not p.exists():
+            return False, f"File or folder '{target}' not found.", {}
+
+        stat = p.stat()
+        meta = {
+            "name": p.name,
+            "path": str(p.resolve()),
+            "is_directory": p.is_dir(),
+            "size_bytes": stat.st_size,
+            "size_formatted": f"{stat.st_size / 1024:.1f} KB" if stat.st_size < 1024 * 1024 else f"{stat.st_size / (1024 * 1024):.2f} MB",
+            "extension": p.suffix,
+            "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+            "created": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_ctime)),
+        }
+        summary = f"'{p.name}' is {meta['size_formatted']}, last modified on {meta['modified']}."
+        return True, summary, meta
+
+    def find_duplicate_files(self, folder: str = "Downloads") -> List[Dict[str, Any]]:
+        import hashlib
+        parent_map = {
+            "downloads": Path.home() / "Downloads",
+            "documents": Path.home() / "Documents",
+            "desktop": Path.home() / "Desktop",
+        }
+        target_dir = parent_map.get(folder.lower(), Path(folder))
+        if not target_dir.exists():
+            return []
+
+        hash_map: Dict[str, List[Path]] = {}
+        for path in target_dir.glob("*"):
+            if path.is_file() and path.stat().st_size > 0:
+                try:
+                    hasher = hashlib.md5()
+                    with open(path, "rb") as f:
+                        for chunk in iter(lambda: f.read(65536), b""):
+                            hasher.update(chunk)
+                    h = hasher.hexdigest()
+                    hash_map.setdefault(h, []).append(path)
+                except Exception:
+                    continue
+
+        duplicates = []
+        for h, paths in hash_map.items():
+            if len(paths) > 1:
+                duplicates.append({
+                    "hash": h,
+                    "count": len(paths),
+                    "files": [str(p.name) for p in paths]
+                })
+        return duplicates
+
+
 
 file_service = FileService()

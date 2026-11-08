@@ -208,6 +208,14 @@ class TaskScheduler:
                 await self._execute_search_web(task)
             elif task.intent == "send_message":
                 await self._execute_send_message(task)
+            elif task.intent == "make_call":
+                await self._execute_make_call(task)
+            elif task.intent == "end_call":
+                await self._execute_end_call(task)
+            elif task.intent in ["analyze_screen", "explain_error", "vision_mode"]:
+                await self._execute_analyze_screen(task)
+            elif task.intent == "productivity_mode":
+                await self._execute_productivity_mode(task)
             elif task.intent == "write_note":
                 await self._execute_write_note(task)
             elif task.intent == "summarize_results":
@@ -382,6 +390,74 @@ class TaskScheduler:
             task.status = TaskStatus.FAILED
             task.error = msg
 
+    async def _execute_make_call(self, task: TaskItem):
+        """Initiates voice or video call via calling service after confirmation."""
+        from backend.services.calling_service import calling_service
+        phone = task.phone
+        contact_name = task.contact or "Contact"
+        provider = task.application or "phone_link"
+
+        if not phone:
+            matched, ambiguous = contact_service.resolve_contact(contact_name)
+            if matched:
+                phone = matched["phone"]
+                contact_name = matched["name"]
+            else:
+                task.status = TaskStatus.FAILED
+                task.error = f"Cannot place call: Contact '{contact_name}' not found."
+                return
+
+        success, msg, data = await asyncio.to_thread(
+            calling_service.initiate_call,
+            phone=phone,
+            recipient_name=contact_name,
+            provider=provider
+        )
+        if success:
+            task.status = TaskStatus.COMPLETED
+            task.result = msg
+            task.data = data
+        else:
+            task.status = TaskStatus.FAILED
+            task.error = msg
+
+    async def _execute_end_call(self, task: TaskItem):
+        """Terminates active call."""
+        from backend.services.calling_service import calling_service
+        success, msg = await asyncio.to_thread(calling_service.end_call)
+        task.status = TaskStatus.COMPLETED if success else TaskStatus.FAILED
+        task.result = msg
+
+    async def _execute_analyze_screen(self, task: TaskItem):
+        """Analyzes active screen and foreground controls."""
+        from backend.services.vision_service import vision_service
+        query = task.query or "Analyze my screen"
+        res = await asyncio.to_thread(vision_service.analyze_screen, query)
+        if res.get("success"):
+            task.status = TaskStatus.COMPLETED
+            task.result = res.get("summary")
+            task.data = res
+        else:
+            task.status = TaskStatus.FAILED
+            task.error = res.get("error", "Screen analysis failed.")
+
+    async def _execute_productivity_mode(self, task: TaskItem):
+        """Activates study, work, or focus mode."""
+        from backend.services.productivity_service import productivity_service
+        mode = (task.data or {}).get("mode", "focus_mode")
+        duration = (task.data or {}).get("duration", 25)
+        if mode == "study_mode":
+            res = await asyncio.to_thread(productivity_service.start_study_mode, duration_minutes=duration or 45)
+        elif mode == "work_mode":
+            res = await asyncio.to_thread(productivity_service.start_work_mode, duration_minutes=duration or 60)
+        else:
+            res = await asyncio.to_thread(productivity_service.start_focus_mode, duration_minutes=duration or 25)
+
+        task.status = TaskStatus.COMPLETED if res.get("success") else TaskStatus.FAILED
+        task.result = res.get("message")
+        task.data = res
+
+
     def confirm_and_resume_plan(self, plan_id: str, confirmation_id: Optional[str] = None) -> Optional[TaskPlan]:
         """Approves pending tasks in the plan and resumes execution."""
         plan = self._active_plans.get(plan_id)
@@ -431,8 +507,19 @@ class TaskScheduler:
 
         # If all tasks completed cleanly for compound action
         if not failed and not waiting and completed:
-            if any(t.intent == "search_web" for t in completed) and any(t.intent == "open_application" for t in completed):
+            search_task = next((t for t in completed if t.intent == "search_web"), None)
+            open_task = next((t for t in completed if t.intent == "open_application"), None)
+            msg_task = next((t for t in completed if t.intent == "send_message"), None)
+            call_task = next((t for t in completed if t.intent == "make_call"), None)
+
+            if search_task and open_task:
                 return "All tasks completed successfully."
+
+            if msg_task and open_task:
+                return f"WhatsApp opened and message sent to {msg_task.contact}."
+
+            if call_task:
+                return f"Calling {call_task.contact}."
 
         parts = []
         if completed:

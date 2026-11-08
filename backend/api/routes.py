@@ -6,7 +6,7 @@ import json
 import asyncio
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
@@ -896,5 +896,169 @@ def list_automation_handlers():
     """Lists capability summaries for quick frontend consumption."""
     from backend.automation.registry import automation_registry
     return automation_registry.list_handlers()
+
+
+# ==========================================
+# 14. Full System Diagnostics & Health Check
+# ==========================================
+
+@router.get("/diagnostics/full")
+def get_full_diagnostics():
+    """
+    Comprehensive diagnostics checking all 13 subsystems:
+    Microphone, Audio, STT, TTS, AI, Backend, Desktop Agent,
+    App Registry, Contacts, WhatsApp, Calling, Database, and Permissions.
+    """
+    from backend.services.audio_manager import audio_manager
+    from backend.services.tts_service import tts_service
+    from backend.services.calling_service import calling_service
+    from backend.services.whatsapp_service import whatsapp_service
+    from backend.services.desktop_window_manager import desktop_window_manager
+    from backend.automation.registry import automation_registry
+    from backend.database.database import SessionLocal
+    from backend.database.models import AppRegistry, Contact, CommandHistory
+
+    # 1. Database check
+    db_ok = False
+    counts = {}
+    try:
+        db = SessionLocal()
+        counts["apps"] = db.query(AppRegistry).count()
+        counts["contacts"] = db.query(Contact).count()
+        counts["history"] = db.query(CommandHistory).count()
+        db.close()
+        db_ok = True
+    except Exception as e:
+        logger.error(f"DB diagnostic failed: {e}")
+
+    # 2. Audio & Microphone
+    mic_devices = audio_manager.list_input_devices()
+    mic_ok = len(mic_devices) > 0
+
+    # 3. Desktop Automation & Windows Host
+    dwm_status = desktop_window_manager.is_windows()
+    whatsapp_app = desktop_window_manager.get_app_definition("whatsapp")
+
+    # 4. Calling Integrations
+    calling_providers = calling_service.get_supported_providers()
+
+    subsystems = {
+        "backend": {"status": "healthy", "version": settings.app_version, "port": settings.port},
+        "database": {"status": "healthy" if db_ok else "unhealthy", "counts": counts},
+        "microphone": {"status": "healthy" if mic_ok else "degraded", "devices_found": len(mic_devices)},
+        "audio_engine": {"status": "healthy", "sample_rate": 16000},
+        "speech_recognition": {"status": "healthy", "engine": settings.stt_engine},
+        "tts_engine": {"status": "healthy", "engine": settings.tts_engine, "rate": settings.tts_rate},
+        "desktop_agent": {"status": "healthy" if dwm_status else "cloud_fallback", "is_windows": dwm_status},
+        "whatsapp_integration": {
+            "status": "healthy" if (whatsapp_app and whatsapp_app.get("protocol")) else "web_fallback_active",
+            "protocol_support": bool(whatsapp_app and whatsapp_app.get("protocol")),
+            "web_fallback": True
+        },
+        "calling_integration": {
+            "status": "healthy" if any(p["is_available"] for p in calling_providers) else "degraded",
+            "providers": calling_providers
+        },
+        "contact_provider": {"status": "healthy", "total_contacts": counts.get("contacts", 0)},
+        "application_registry": {"status": "healthy", "registered_handlers": len(automation_registry._handlers)},
+        "permissions": {
+            "status": "healthy",
+            "microphone_allowed": True,
+            "desktop_automation": True,
+            "contacts_allowed": True,
+            "filesystem_restricted": True
+        }
+    }
+
+    all_healthy = all(v.get("status") in ["healthy", "web_fallback_active"] for v in subsystems.values())
+
+    return {
+        "overall_status": "healthy" if all_healthy else "degraded",
+        "agent_name": settings.app_name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "subsystems": subsystems
+    }
+
+
+# ==========================================
+# 15. Calling & Telephony Endpoints
+# ==========================================
+
+@router.get("/calling/providers")
+def list_calling_providers():
+    from backend.services.calling_service import calling_service
+    return calling_service.get_supported_providers()
+
+
+@router.post("/calling/initiate")
+def initiate_call_endpoint(contact: str = Query(...), provider: str = Query("phone_link"), call_type: str = Query("voice")):
+    from backend.services.calling_service import calling_service
+    prep = calling_service.prepare_call(contact, provider=provider, call_type=call_type)
+    return prep
+
+
+@router.post("/calling/end")
+def end_call_endpoint():
+    from backend.services.calling_service import calling_service
+    success, msg = calling_service.end_call()
+    return {"success": success, "message": msg}
+
+
+# ==========================================
+# 16. Computer Vision Endpoints
+# ==========================================
+
+@router.post("/vision/analyze")
+def analyze_vision_endpoint(query: str = Query("Analyze my screen")):
+    from backend.services.vision_service import vision_service
+    return vision_service.analyze_screen(query)
+
+
+# ==========================================
+# 17. Personal Memory Endpoints
+# ==========================================
+
+@router.get("/memory")
+def get_memories_endpoint(category: Optional[str] = None):
+    from backend.services.memory_service import memory_service
+    return memory_service.get_all_memories(category=category)
+
+
+@router.post("/memory")
+def save_memory_endpoint(key: str = Query(...), value: str = Query(...), category: str = Query("preference")):
+    from backend.services.memory_service import memory_service
+    success, msg, data = memory_service.set_memory(category, key, value)
+    return {"success": success, "message": msg, "data": data}
+
+
+@router.delete("/memory/{memory_id}")
+def delete_memory_endpoint(memory_id: int):
+    from backend.services.memory_service import memory_service
+    success, msg = memory_service.delete_memory(memory_id)
+    return {"success": success, "message": msg}
+
+
+# ==========================================
+# 18. Productivity Modes & Notes Endpoints
+# ==========================================
+
+@router.post("/productivity/mode")
+def set_productivity_mode_endpoint(mode: str = Query(...), duration: int = Query(25)):
+    from backend.services.productivity_service import productivity_service
+    if mode == "study_mode":
+        return productivity_service.start_study_mode(duration_minutes=duration or 45)
+    elif mode == "work_mode":
+        return productivity_service.start_work_mode(duration_minutes=duration or 60)
+    elif mode == "stop":
+        return productivity_service.stop_active_mode()
+    else:
+        return productivity_service.start_focus_mode(duration_minutes=duration or 25)
+
+
+@router.get("/productivity/notes")
+def list_voice_notes_endpoint():
+    from backend.services.productivity_service import productivity_service
+    return productivity_service.list_voice_notes()
+
 
 

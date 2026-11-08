@@ -1,11 +1,11 @@
 @echo off
-title Aura AI Desktop Voice Assistant V2
+title Desktop AI Agent - Universal Laptop Automation
 cls
 echo ======================================================================
-echo    AURA AI VOICE COMMAND ASSISTANT - LOCAL DESKTOP RUNNER
+echo    DESKTOP AI AGENT - UNIVERSAL LAPTOP AUTOMATION SYSTEM
 echo ======================================================================
 echo  [+] Initializing native Windows OS hooks...
-echo  [+] Real window enumeration and process detection enabled.
+echo  [+] Real window enumeration, UIA process detection & telephony enabled.
 echo.
 
 cd /d "%~dp0"
@@ -16,7 +16,7 @@ IF EXIST "venv\Scripts\python.exe" (
     SET "PYTHON_EXEC=python"
 )
 
-echo  [+] Launching Aura backend server & local desktop UI...
+echo  [+] Launching Desktop AI Agent backend & UI...
 echo  [+] URL: http://127.0.0.1:8000
 echo.
 echo  Press Ctrl+C in this window anytime to stop the assistant.

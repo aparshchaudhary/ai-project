@@ -69,3 +69,28 @@ class Contact(Base):
     email = Column(String(100), nullable=True)
     relationship = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=utc_now)
+
+
+class UserMemory(Base):
+    __tablename__ = "user_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    category = Column(String(50), nullable=False, index=True)  # preference, workflow, alias, project, app
+    key = Column(String(100), nullable=False, index=True)
+    value = Column(Text, nullable=False)
+    is_enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class ProductivityItem(Base):
+    __tablename__ = "productivity_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_type = Column(String(50), nullable=False, index=True)  # voice_note, pomodoro_session, focus_mode, meeting
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=True)
+    status = Column(String(50), default="active")  # active, completed, archived
+    metadata_json = Column(Text, default="{}")
+    created_at = Column(DateTime, default=utc_now)
+

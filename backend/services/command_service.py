@@ -103,15 +103,20 @@ class CommandService:
                 if plan.ambiguous_contacts:
                     names_str = " or ".join([c["name"] for c in plan.ambiguous_contacts])
                     target_name = "recipient"
+                    is_call = any(t.intent == "make_call" for t in plan.tasks)
+                    action_word = "call" if is_call else "message"
                     for t in plan.tasks:
-                        if t.intent == "send_message" and t.contact:
+                        if t.intent in ["send_message", "make_call"] and t.contact:
                             target_name = t.contact
                             break
-                    prompt_msg = f"I found {len(plan.ambiguous_contacts)} contacts named {target_name}: {names_str}. Which one would you like to message?"
+                    prompt_msg = f"I found {len(plan.ambiguous_contacts)} contacts named {target_name}: {names_str}. Which one would you like to {action_word}?"
                 else:
                     for t in plan.tasks:
                         if t.intent == "send_message":
                             prompt_msg = f"You want to send '{t.message}' to {t.contact} ({t.phone or 'WhatsApp'}). Shall I send it?"
+                            break
+                        elif t.intent == "make_call":
+                            prompt_msg = f"Please confirm you want to call {t.contact} ({t.phone or 'Phone'}). Shall I initiate the call?"
                             break
                     if not prompt_msg:
                         prompt_msg = f"Please confirm you want to proceed with: {plan.summary or text}."
@@ -480,6 +485,84 @@ class CommandService:
                 success, msg, data = whatsapp_service.dispatch_message(phone, message, contact)
                 return success, msg, data
             return False, f"Could not find contact '{contact}'.", None
+
+        # 2c. Calling & Telephony
+        elif intent == "make_call":
+            from backend.services.calling_service import calling_service
+            contact = entities.get("contact", "")
+            provider = entities.get("provider", "phone_link")
+            call_type = entities.get("call_type", "voice")
+            phone = entities.get("phone")
+            if not phone:
+                matched, _ = contact_service.resolve_contact(contact)
+                if matched:
+                    phone = matched["phone"]
+                    contact = matched["name"]
+            if phone:
+                success, msg, data = calling_service.initiate_call(phone, contact, provider=provider, call_type=call_type)
+                return success, msg, data
+            return False, f"Could not find contact '{contact}' to call.", None
+
+        elif intent == "end_call":
+            from backend.services.calling_service import calling_service
+            success, msg = calling_service.end_call()
+            return success, msg, None
+
+        # 2d. Computer Vision & Screen Understanding
+        elif intent in ["analyze_screen", "explain_error", "vision_mode"]:
+            from backend.services.vision_service import vision_service
+            query = entities.get("query", "Analyze my screen")
+            res = vision_service.analyze_screen(query)
+            return res.get("success", True), res.get("summary", "Screen analyzed."), res
+
+        # 2e. Productivity Modes & Notes
+        elif intent == "productivity_mode":
+            from backend.services.productivity_service import productivity_service
+            mode = entities.get("mode", "focus_mode")
+            duration = int(entities.get("duration", 25) or 25)
+            if mode == "study_mode":
+                res = productivity_service.start_study_mode(duration_minutes=duration or 45)
+            elif mode == "work_mode":
+                res = productivity_service.start_work_mode(duration_minutes=duration or 60)
+            else:
+                res = productivity_service.start_focus_mode(duration_minutes=duration or 25)
+            return res.get("success", True), res.get("message"), res
+
+        elif intent == "stop_productivity_mode":
+            from backend.services.productivity_service import productivity_service
+            res = productivity_service.stop_active_mode()
+            return res.get("success", True), res.get("message"), res
+
+        elif intent == "save_voice_note":
+            from backend.services.productivity_service import productivity_service
+            title = entities.get("title", "Voice Note")
+            content = entities.get("content", "")
+            success, msg, data = productivity_service.save_voice_note(title, content)
+            return success, msg, data
+
+        # 2f. Personal Memory System
+        elif intent == "save_memory":
+            from backend.services.memory_service import memory_service
+            key = entities.get("key", "")
+            val = entities.get("value", "")
+            category = entities.get("category", "preference")
+            success, msg, data = memory_service.set_memory(category, key, val)
+            return success, msg, data
+
+        elif intent == "recall_memory":
+            from backend.services.memory_service import memory_service
+            key = entities.get("key", "")
+            category = entities.get("category", "preference")
+            if key:
+                val = memory_service.get_memory(category, key)
+                if val:
+                    return True, f"I remember that your {key} is {val}.", {"key": key, "value": val}
+            mems = memory_service.get_all_memories()
+            if mems:
+                summary = f"I remember {len(mems)} items: " + ", ".join([f"{m['key']} as {m['value']}" for m in mems[:3]])
+                return True, summary, {"memories": mems}
+            return False, "I don't have any saved memories yet.", None
+
 
         # 3. Screenshot
         elif intent == "take_screenshot":

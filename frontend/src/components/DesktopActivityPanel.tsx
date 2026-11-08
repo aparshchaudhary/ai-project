@@ -90,6 +90,13 @@ export const DesktopActivityPanel: React.FC<DesktopActivityPanelProps> = ({
         </div>
       );
     }
+    if (key.includes('call') || key.includes('phone')) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-xs">
+          CL
+        </div>
+      );
+    }
     return (
       <div className="w-8 h-8 rounded-lg bg-slate-700/50 border border-slate-600 flex items-center justify-center text-slate-300 font-bold text-xs">
         <Monitor className="w-4 h-4 text-cyan-400" />

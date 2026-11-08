@@ -97,6 +97,9 @@ class DesktopWindowManager:
     def __init__(self):
         self._app_definitions = self._init_app_definitions()
 
+    def is_windows(self) -> bool:
+        return IS_WINDOWS
+
     def _init_app_definitions(self) -> Dict[str, Dict[str, Any]]:
         """
         Registry of common desktop applications with discovery paths,
@@ -236,6 +239,88 @@ class DesktopWindowManager:
                 "protocol": "https://www.youtube.com",
                 "web_fallback": "https://www.youtube.com",
                 "icon": "video"
+            },
+            "msedge": {
+                "display_name": "Microsoft Edge",
+                "process_names": ["msedge.exe"],
+                "window_keywords": ["edge", "microsoft edge"],
+                "candidate_paths": [
+                    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                    "msedge.exe",
+                    "msedge"
+                ],
+                "protocol": "microsoft-edge:",
+                "web_fallback": "https://www.bing.com",
+                "icon": "globe"
+            },
+            "word": {
+                "display_name": "Microsoft Word",
+                "process_names": ["WINWORD.EXE", "winword.exe"],
+                "window_keywords": ["word", "microsoft word"],
+                "candidate_paths": [
+                    r"C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE",
+                    r"C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE",
+                    "winword.exe",
+                    "winword"
+                ],
+                "protocol": "ms-word:",
+                "web_fallback": "https://office.live.com/start/Word.aspx",
+                "icon": "file-text"
+            },
+            "excel": {
+                "display_name": "Microsoft Excel",
+                "process_names": ["EXCEL.EXE", "excel.exe"],
+                "window_keywords": ["excel", "microsoft excel"],
+                "candidate_paths": [
+                    r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE",
+                    r"C:\Program Files (x86)\Microsoft Office\root\Office16\EXCEL.EXE",
+                    "excel.exe",
+                    "excel"
+                ],
+                "protocol": "ms-excel:",
+                "web_fallback": "https://office.live.com/start/Excel.aspx",
+                "icon": "grid"
+            },
+            "powerpoint": {
+                "display_name": "Microsoft PowerPoint",
+                "process_names": ["POWERPNT.EXE", "powerpnt.exe"],
+                "window_keywords": ["powerpoint", "microsoft powerpoint"],
+                "candidate_paths": [
+                    r"C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE",
+                    r"C:\Program Files (x86)\Microsoft Office\root\Office16\POWERPNT.EXE",
+                    "powerpnt.exe",
+                    "powerpnt"
+                ],
+                "protocol": "ms-powerpoint:",
+                "web_fallback": "https://office.live.com/start/PowerPoint.aspx",
+                "icon": "presentation"
+            },
+            "teams": {
+                "display_name": "Microsoft Teams",
+                "process_names": ["Teams.exe", "ms-teams.exe"],
+                "window_keywords": ["teams", "microsoft teams"],
+                "candidate_paths": [
+                    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Teams\current\Teams.exe"),
+                    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\ms-teams.exe"),
+                    "teams.exe"
+                ],
+                "protocol": "msteams:",
+                "web_fallback": "https://teams.microsoft.com",
+                "icon": "users"
+            },
+            "skype": {
+                "display_name": "Skype",
+                "process_names": ["Skype.exe"],
+                "window_keywords": ["skype"],
+                "candidate_paths": [
+                    os.path.expandvars(r"%PROGRAMFILES%\Microsoft\Skype for Desktop\Skype.exe"),
+                    os.path.expandvars(r"%PROGRAMFILES(X86)%\Microsoft\Skype for Desktop\Skype.exe"),
+                    "skype.exe"
+                ],
+                "protocol": "skype:",
+                "web_fallback": "https://web.skype.com",
+                "icon": "phone"
             }
         }
 
@@ -283,7 +368,26 @@ class DesktopWindowManager:
             "task manager": "taskmgr",
             "activity monitor": "taskmgr",
             "youtube": "youtube",
-            "yt": "youtube"
+            "yt": "youtube",
+            "edge": "msedge",
+            "microsoft edge": "msedge",
+            "ms edge": "msedge",
+            "word": "word",
+            "ms word": "word",
+            "microsoft word": "word",
+            "winword": "word",
+            "excel": "excel",
+            "ms excel": "excel",
+            "microsoft excel": "excel",
+            "powerpoint": "powerpoint",
+            "ms powerpoint": "powerpoint",
+            "microsoft powerpoint": "powerpoint",
+            "ppt": "powerpoint",
+            "powerpnt": "powerpoint",
+            "teams": "teams",
+            "microsoft teams": "teams",
+            "ms teams": "teams",
+            "skype": "skype"
         }
 
         if target_clean in alias_map:

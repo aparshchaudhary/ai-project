@@ -353,5 +353,79 @@ export const api = {
     if (!res.ok) throw new Error('Failed to resolve contact query');
     return res.json();
   },
+
+  // Calling & Telephony
+  async getCallingProviders(): Promise<any[]> {
+    const res = await fetch(`${BASE_URL}/api/calling/providers`);
+    if (!res.ok) throw new Error('Failed to fetch calling providers');
+    return res.json();
+  },
+
+  async initiateCall(contact: string, provider = 'phone_link', callType = 'voice'): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/calling/initiate?contact=${encodeURIComponent(contact)}&provider=${encodeURIComponent(provider)}&call_type=${encodeURIComponent(callType)}`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to initiate call');
+    return res.json();
+  },
+
+  async endCall(): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/calling/end`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to end call');
+    return res.json();
+  },
+
+  // Computer Vision
+  async analyzeVision(query = 'Analyze my screen'): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/vision/analyze?query=${encodeURIComponent(query)}`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to analyze vision');
+    return res.json();
+  },
+
+  // Personal Memory System
+  async getMemories(category?: string): Promise<any[]> {
+    const url = category ? `${BASE_URL}/api/memory?category=${encodeURIComponent(category)}` : `${BASE_URL}/api/memory`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch memories');
+    return res.json();
+  },
+
+  async saveMemory(key: string, value: string, category = 'preference'): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/memory?key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}&category=${encodeURIComponent(category)}`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to save memory');
+    return res.json();
+  },
+
+  async deleteMemory(id: number): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/memory/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete memory');
+    return res.json();
+  },
+
+  // Productivity
+  async setProductivityMode(mode: string, duration = 25): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/productivity/mode?mode=${encodeURIComponent(mode)}&duration=${duration}`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to set productivity mode');
+    return res.json();
+  },
+
+  async getVoiceNotes(): Promise<any[]> {
+    const res = await fetch(`${BASE_URL}/api/productivity/notes`);
+    if (!res.ok) throw new Error('Failed to fetch voice notes');
+    return res.json();
+  },
+
+  // Diagnostics
+  async getFullDiagnostics(): Promise<any> {
+    const res = await fetch(`${BASE_URL}/api/diagnostics/full`);
+    if (!res.ok) throw new Error('Failed to fetch diagnostics');
+    return res.json();
+  },
 };
 

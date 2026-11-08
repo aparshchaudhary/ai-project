@@ -44,7 +44,7 @@ export const CentralMic: React.FC<CentralMicProps> = ({
   onToggle,
   onStopVoice,
   transcript,
-  assistantName = 'Aura',
+  assistantName = 'Desktop AI Agent',
   audioLevel = 0,
   devices = [],
   selectedDeviceId = null,

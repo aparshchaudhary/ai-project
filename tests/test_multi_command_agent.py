@@ -531,4 +531,55 @@ class TestWhatsAppAutomationSuite:
         assert "chrome" in keys
         assert "notepad" in keys
 
+    def test_chrome_search_what_is_ai_conjunction_typo(self):
+        """Verifies 'Open Chrome an search what is ai' is parsed as two tasks and not an app launch failure."""
+        instruction = "Open Chrome an search what is ai"
+        assert task_planner.is_multi_command(instruction) is True
+        plan = task_planner.plan_instruction(instruction)
+        assert len(plan.tasks) == 2
+        assert plan.tasks[0].intent == "open_application"
+        assert plan.tasks[0].application == "chrome"
+        assert plan.tasks[1].intent == "search_web"
+        assert plan.tasks[1].query.lower() == "what is ai"
+
+    def test_find_rahul_in_contacts_and_call_him(self):
+        """Verifies 'Find Rahul in my contacts and call him' maps to make_call, not web search."""
+        instruction = "Find Rahul in my contacts and call him"
+        plan = task_planner.plan_instruction(instruction)
+        assert len(plan.tasks) >= 1
+        call_task = plan.tasks[0]
+        assert call_task.intent == "make_call"
+        assert "rahul" in call_task.contact.lower()
+        assert call_task.requires_confirmation is True
+
+    def test_identify_app_rejects_what_and_action_verbs(self):
+        """Ensures stop words like 'what' and phrases with action verbs do not falsely match WhatsApp."""
+        assert task_planner._identify_app("search what is ai") is None
+        assert task_planner._identify_app("what is ai") is None
+        assert task_planner._identify_app("what") is None
+        assert task_planner._identify_app("Chrome") == "chrome"
+        assert task_planner._identify_app("browsre") == "chrome"
+        assert task_planner._identify_app("chorme") == "chrome"
+
+    def test_multilingual_hindi_search(self):
+        """Verifies Hindi/Hinglish compound search commands."""
+        instruction = "Chrome kholo aur AI search karo"
+        assert task_planner.is_multi_command(instruction) is True
+        plan = task_planner.plan_instruction(instruction)
+        assert len(plan.tasks) == 2
+        assert plan.tasks[0].intent == "open_application"
+        assert plan.tasks[0].application == "chrome"
+        assert plan.tasks[1].intent == "search_web"
+        assert "ai" in plan.tasks[1].query.lower()
+
+    def test_full_diagnostics_endpoint(self):
+        """Tests /api/diagnostics/full endpoint."""
+        res = client.get("/api/diagnostics/full")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["overall_status"] in ["healthy", "degraded"]
+        assert "subsystems" in data
+        assert "calling_integration" in data["subsystems"]
+        assert "whatsapp_integration" in data["subsystems"]
+
 

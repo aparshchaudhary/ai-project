@@ -56,7 +56,7 @@ export function App() {
 
   // Settings
   const [settings, setSettings] = useState<AppSettings>({
-    app_name: 'Aura Voice Assistant',
+    app_name: 'Desktop AI Agent',
     wake_word: 'hey assistant',
     wake_word_enabled: true,
     default_language: 'en',
@@ -178,12 +178,12 @@ export function App() {
         const ambiguous = res.data?.ambiguous_contacts || [];
 
         if (res.data?.tasks) {
-          const sendTask = res.data.tasks.find((t: any) => t.intent === 'send_message');
-          if (sendTask) {
-            recipient = sendTask.contact;
-            messageText = sendTask.message;
-            phone = sendTask.phone;
-            appName = sendTask.application || 'WhatsApp';
+          const actionTask = res.data.tasks.find((t: any) => t.intent === 'send_message' || t.intent === 'make_call');
+          if (actionTask) {
+            recipient = actionTask.contact;
+            messageText = actionTask.message;
+            phone = actionTask.phone;
+            appName = actionTask.application || (actionTask.intent === 'make_call' ? 'Phone Link / WhatsApp' : 'WhatsApp');
           }
         }
         if (!recipient && res.entities?.contact) {
@@ -192,6 +192,9 @@ export function App() {
         if (!messageText && res.entities?.message) {
           messageText = res.entities.message as string;
         }
+        if (!phone && res.entities?.phone) {
+          phone = res.entities.phone as string;
+        }
 
         setConfirmationState({
           isOpen: true,
@@ -199,7 +202,7 @@ export function App() {
           prompt: res.response_text,
           intent: res.intent,
           riskLevel: (res.risk_level as 'medium' | 'high') || 'medium',
-          application: appName || (res.intent === 'send_message' ? 'WhatsApp' : undefined),
+          application: appName || (res.intent === 'send_message' ? 'WhatsApp' : res.intent === 'make_call' ? 'Phone Link' : undefined),
           recipient,
           message: messageText,
           phone,
@@ -288,6 +291,20 @@ export function App() {
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
               error: t.error,
             });
+          } else if (t.intent === 'make_call') {
+            newActs.push({
+              id: Math.random().toString(36).substring(2, 9),
+              app_key: 'calling',
+              app_name: `Call: ${t.contact || 'Contact'} (${t.data?.provider || 'Phone Link'})`,
+              command_received: userText,
+              status: isDone ? 'Completed' : 'Waiting Confirmation',
+              action: 'initiated_call',
+              process_started: true,
+              window_detected: false,
+              execution_time_ms: t.execution_time_ms || tData.execution_time_ms,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              error: t.error,
+            });
           }
         }
         if (newActs.length > 0) {
@@ -327,18 +344,42 @@ export function App() {
       );
       let toastStatus = appData?.status || (isSuccess ? 'Window detected' : 'Launch failed');
 
-      if (res.intent === 'open_application' || appTask) {
+      if (res.intent === 'multi_command_plan') {
+        const searchTask = res.data?.tasks?.find((t: any) => t.intent === 'search_web');
+        const callTask = res.data?.tasks?.find((t: any) => t.intent === 'make_call');
+        const msgTask = res.data?.tasks?.find((t: any) => t.intent === 'send_message');
+        const hasOpen = Boolean(appTask);
+
+        if (hasOpen && searchTask) {
+          toastTitle = `${appDisplayName || 'Google Chrome'} + Search`;
+        } else if (hasOpen && msgTask) {
+          toastTitle = `${appDisplayName || 'WhatsApp'} + Message`;
+        } else if (searchTask) {
+          toastTitle = `Web Search: "${searchTask.query || 'query'}"`;
+        } else if (callTask) {
+          toastTitle = `Call ${callTask.contact || 'Contact'}`;
+        } else if (msgTask) {
+          toastTitle = `Message ${msgTask.contact || 'Contact'}`;
+        } else if (hasOpen) {
+          toastTitle = appDisplayName || 'Application';
+        } else {
+          toastTitle = 'Multi-Command Workflow';
+        }
+
+        toastMessage = res.response_text || 'Multi-command execution completed.';
+        toastStatus = res.status === 'success' || isSuccess ? 'Completed' : (res.status === 'pending_confirmation' ? 'Waiting Confirmation' : 'Partially Failed');
+      } else if (res.intent === 'open_application') {
         toastTitle = appDisplayName || 'Application';
         toastMessage = isSuccess ? `${toastTitle} successfully opened.` : `Failed to launch ${toastTitle}.`;
         toastStatus = appData?.status || (isSuccess ? 'Window detected' : 'Launch failed');
-      } else if (res.intent === 'multi_command_plan') {
-        toastTitle = appDisplayName ? `${appDisplayName} + Search` : 'Multi-Command Agent';
-        toastMessage = res.response_text || 'Multi-command execution finished.';
-        toastStatus = res.status === 'success' || isSuccess ? 'Completed' : 'Partially Failed';
       } else if (res.intent === 'search_web') {
         toastTitle = 'Web Search';
         toastMessage = res.response_text || `Searched for ${res.entities?.query || 'query'}`;
         toastStatus = 'Completed';
+      } else if (res.intent === 'make_call') {
+        toastTitle = `Call ${res.entities?.contact || 'Contact'}`;
+        toastMessage = res.response_text || 'Initiating call...';
+        toastStatus = res.requires_confirmation ? 'Waiting Confirmation' : 'In Progress';
       } else {
         toastTitle = res.intent.replace(/_/g, ' ').toUpperCase();
         toastMessage = res.response_text || 'Command completed.';
@@ -348,6 +389,7 @@ export function App() {
       setLaunchNotification({
         isOpen: true,
         appName: toastTitle,
+        title: toastTitle,
         message: toastMessage,
         status: toastStatus,
         executionTimeMs: appData?.execution_time_ms ?? res.execution_time_ms ?? 0,
