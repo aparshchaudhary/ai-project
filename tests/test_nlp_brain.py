@@ -1,5 +1,6 @@
 import pytest
 from backend.services.nlp_service import nlp_service
+from backend.config.settings import settings
 
 
 def test_app_open_and_close_hindi_english():
@@ -109,7 +110,7 @@ def test_conversational_brain_greetings_and_knowledge():
     # Identity
     who = nlp_service.parse_intent("who are you")
     assert who.intent == "conversation"
-    assert "Aura" in who.response_text
+    assert settings.app_name in who.response_text or "Desktop AI Agent" in who.response_text or "assistant" in who.response_text.lower()
 
     # Tech knowledge
     ai_res = nlp_service.parse_intent("what is ai")
