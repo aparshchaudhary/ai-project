@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { CentralMic } from '../components/CentralMic';
 import { DesktopActivityPanel, DesktopActivityItem } from '../components/DesktopActivityPanel';
+import { ConnectedDevicesPanel } from '../components/ConnectedDevicesPanel';
 import { AiAgentActivityPanel } from '../components/AiAgentActivityPanel';
 import { AssistantState, ConversationTurn, SystemStatus, ReminderItem, AudioDeviceItem, LatencyMetrics, AgentTaskPlan, ContactItem, CommandExecutionResult } from '../types';
 import { ListeningMode } from '../hooks/useVoiceRecognition';
@@ -205,6 +206,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Cross-Platform Connected Devices Mesh */}
+      <ConnectedDevicesPanel />
 
       {/* Live Desktop Activity Panel */}
       <DesktopActivityPanel

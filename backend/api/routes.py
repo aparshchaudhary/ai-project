@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -1059,6 +1060,80 @@ def set_productivity_mode_endpoint(mode: str = Query(...), duration: int = Query
 def list_voice_notes_endpoint():
     from backend.services.productivity_service import productivity_service
     return productivity_service.list_voice_notes()
+
+
+# ==========================================
+# 19. Connected Devices & Cross-Device Relay Endpoints
+# ==========================================
+
+from backend.models.device_schemas import (
+    DeviceRegistrationRequest,
+    DeviceHeartbeatRequest,
+    RemoteTaskDispatch,
+    RemoteTaskResult
+)
+from backend.services.device_registry_service import device_registry_service
+from backend.services.cross_device_relay_service import cross_device_relay_service
+
+
+@router.get("/devices")
+def list_connected_devices():
+    """Lists all paired and connected devices (Android & Windows)."""
+    devices = device_registry_service.get_connected_devices()
+    return {"devices": [d.model_dump() for d in devices]}
+
+
+@router.post("/devices/pair")
+def pair_device(req: DeviceRegistrationRequest):
+    """Registers and pairs a new Android or Windows device."""
+    info = device_registry_service.register_device(req)
+    return {"success": True, "device": info.model_dump()}
+
+
+@router.post("/devices/heartbeat")
+def device_heartbeat(req: DeviceHeartbeatRequest):
+    """Updates device hardware telemetry (battery, RAM, storage)."""
+    ok = device_registry_service.update_heartbeat(req)
+    return {"success": ok}
+
+
+@router.post("/relay/upload")
+async def upload_relay_file(
+    file: UploadFile = File(...),
+    source_device_id: str = Form("android_phone"),
+    target_device_id: str = Form("local_windows")
+):
+    """Stages an uploaded file into the cross-device relay."""
+    content = await file.read()
+    meta = cross_device_relay_service.stage_file_from_bytes(
+        source_device_id=source_device_id,
+        target_device_id=target_device_id,
+        filename=file.filename or "uploaded_file.bin",
+        data=content
+    )
+    return {"success": True, "metadata": meta.model_dump()}
+
+
+@router.get("/relay/download/{transfer_id}")
+def download_relay_file(transfer_id: str):
+    """Downloads a staged relay file for cross-device retrieval."""
+    res = cross_device_relay_service.get_staged_file(transfer_id)
+    if not res:
+        raise HTTPException(status_code=404, detail="Relay file not found or expired.")
+    path, filename, mime_type = res
+    return FileResponse(
+        path=str(path),
+        filename=filename,
+        media_type=mime_type
+    )
+
+
+@router.post("/cross-device/dispatch")
+async def dispatch_cross_device_task(dispatch: RemoteTaskDispatch):
+    """Dispatches a task directly to a specific connected device."""
+    res = await device_registry_service.dispatch_task(dispatch)
+    return res.model_dump()
+
 
 
 

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">AI Agent</string>
+    <string name="service_notification_title">Cross-Platform AI Agent Active</string>
+    <string name="service_notification_text">Connected to central AI orchestrator</string>
+</resources>

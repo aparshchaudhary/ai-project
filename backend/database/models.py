@@ -94,3 +94,39 @@ class ProductivityItem(Base):
     metadata_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=utc_now)
 
+
+class ConnectedDevice(Base):
+    __tablename__ = "connected_devices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(String(100), unique=True, index=True, nullable=False)
+    device_name = Column(String(100), nullable=False)
+    device_type = Column(String(50), nullable=False)  # android | windows | cloud
+    pairing_token = Column(String(255), nullable=True)
+    status = Column(String(50), default="offline")  # online | offline | busy
+    ip_address = Column(String(100), nullable=True)
+    capabilities_json = Column(Text, default="[]")
+    battery_pct = Column(Integer, nullable=True)
+    is_charging = Column(Boolean, default=False)
+    ram_usage_pct = Column(Float, nullable=True)
+    storage_free_gb = Column(Float, nullable=True)
+    system_info_json = Column(Text, default="{}")
+    last_seen = Column(DateTime, default=utc_now)
+    created_at = Column(DateTime, default=utc_now)
+
+
+class CrossDeviceTransfer(Base):
+    __tablename__ = "cross_device_transfers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    transfer_id = Column(String(100), unique=True, index=True, nullable=False)
+    source_device_id = Column(String(100), nullable=False)
+    target_device_id = Column(String(100), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    file_size_bytes = Column(Integer, default=0)
+    file_path = Column(String(500), nullable=True)
+    mime_type = Column(String(100), nullable=True)
+    status = Column(String(50), default="pending")  # pending, transferring, completed, failed
+    created_at = Column(DateTime, default=utc_now)
+
+

@@ -255,6 +255,33 @@ export interface AgentTaskItem {
   result?: string;
   error?: string;
   data?: Record<string, any>;
+  target_device?: 'windows' | 'android' | 'cloud' | 'auto';
+  device_id?: string;
+}
+
+export interface ConnectedDevice {
+  device_id: string;
+  device_name: string;
+  device_type: 'android' | 'windows' | 'cloud' | 'auto';
+  status: 'online' | 'offline' | 'busy' | 'pairing';
+  capabilities: string[];
+  battery_pct?: number | null;
+  is_charging?: boolean | null;
+  ram_usage_pct?: number | null;
+  storage_free_gb?: number | null;
+  ip_address?: string | null;
+  last_seen: number;
+}
+
+export interface CrossDeviceTransfer {
+  transfer_id: string;
+  source_device_id: string;
+  target_device_id: string;
+  filename: string;
+  file_size_bytes: number;
+  mime_type?: string;
+  status: string;
+  download_url?: string;
 }
 
 export interface AgentTaskPlan {

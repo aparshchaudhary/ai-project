@@ -147,6 +147,10 @@ class TaskPlanner:
         if re.search(r"\bfind\s+[a-zA-Z0-9\s]+?\s+(?:in\s+(?:my\s+)?contacts\s+and\s+|and\s+)(?:call|phone|send|message)\b", normalized, re.IGNORECASE):
             return [normalized]
 
+        # 1b. Atomic gallery action pattern (e.g. "Open my gallery and find yesterday's photos")
+        if re.search(r"\bopen\s+(?:my\s+)?gallery\s+and\s+find\b", normalized, re.IGNORECASE):
+            return [normalized]
+
         # 2. If user explicitly wrote "Open Chrome and WhatsApp [simultaneously]"
         clean_no_simul = re.sub(
             r"\s+\b(?:simultaneously|together|ek saath|saath hi|at the same time)\b.*$",
@@ -300,6 +304,7 @@ class TaskPlanner:
     def plan_instruction(self, text: str) -> TaskPlan:
         """
         Parses a full multi-command instruction into a structured validated TaskPlan.
+        Supports cross-platform and cross-device instructions across Windows and Android.
         """
         plan_id = f"plan_{uuid.uuid4().hex[:8]}"
         clean_text = text.strip()
@@ -309,6 +314,14 @@ class TaskPlanner:
         if follow_up_plan:
             self.last_plan = follow_up_plan
             return follow_up_plan
+
+        # Check for Cross-Device Coordination Instruction
+        cross_device_plan = self._detect_cross_device_instruction(clean_text, plan_id)
+        if cross_device_plan:
+            self.last_plan = cross_device_plan
+            if cross_device_plan.requires_confirmation:
+                self.pending_confirmation_plan = cross_device_plan
+            return cross_device_plan
 
         clauses = self._split_into_candidate_clauses(clean_text)
         tasks: List[TaskItem] = []
@@ -326,6 +339,10 @@ class TaskPlanner:
         for idx, clause in enumerate(clauses):
             task_id = f"task_{idx + 1}"
             task_item, detected_app = self._parse_single_clause(task_id, clause, app_context)
+
+            # Ensure target device is assigned
+            if not task_item.target_device or task_item.target_device == "auto":
+                task_item.target_device = self._determine_target_device(clause, task_item.intent, task_item.application)
 
             if detected_app:
                 app_context = detected_app
@@ -396,6 +413,197 @@ class TaskPlanner:
 
         return plan
 
+    def _determine_target_device(self, clause_clean: str, intent: str, app: Optional[str]) -> str:
+        """Determines target device: android | windows | cloud | auto."""
+        lower = clause_clean.lower()
+        if any(h in lower for h in ["on my laptop", "on laptop", "on my pc", "on pc", "on windows", "on computer"]):
+            return "windows"
+        if any(h in lower for h in ["on my phone", "on phone", "on android", "on mobile"]):
+            return "android"
+
+        # Android specific intents
+        if intent in [
+            "set_alarm", "read_notifications", "control_device_setting",
+            "query_gallery", "open_phone_app", "find_phone_file", "receive_file"
+        ]:
+            return "android"
+        if intent == "make_call":
+            return "android"
+        if intent == "query_contacts":
+            return "android"
+        if intent == "send_message" and any(w in lower for w in ["phone", "mobile", "dad", "mom", "bhejo"]):
+            return "android"
+
+        # Windows specific intents
+        if intent in ["write_note", "create_folder", "find_file", "system_specs", "manage_files", "transfer_file"]:
+            return "windows"
+        if app in ["code", "explorer", "notepad", "calculator", "terminal", "word", "excel", "powerpoint"]:
+            return "windows"
+        if intent == "open_application" and app == "chrome":
+            return "windows"
+
+        return "auto"
+
+    def _detect_cross_device_instruction(self, text: str, plan_id: str) -> Optional[TaskPlan]:
+        """Detects cross-device workflows (Windows <-> Android coordination)."""
+        clean = text.strip()
+        lower = clean.lower()
+
+        # 1. "Find my resume on my laptop and send it to Dad on WhatsApp"
+        pat_resume_wa = re.search(
+            r"\b(?:find|get|locate)\s+(?:my\s+)?([a-zA-Z0-9_\-\.\s]+?)\s+(?:on\s+my\s+laptop|on\s+laptop|on\s+windows|on\s+pc)\s+(?:and\s+)?(?:send\s+(?:it\s+)?to|whatsapp)\s+([a-zA-Z0-9\s]+?)(?:\s+(?:on|via)\s+whatsapp)?$",
+            clean,
+            re.IGNORECASE
+        )
+        if pat_resume_wa:
+            doc_name = pat_resume_wa.group(1).strip()
+            contact_name = pat_resume_wa.group(2).strip()
+            t1 = TaskItem(
+                id="task_1",
+                title=f"Find '{doc_name}' on Windows laptop",
+                intent="manage_files",
+                target_device="windows",
+                query=doc_name,
+                data={"action": "find_file", "filename": doc_name},
+                status=TaskStatus.PENDING
+            )
+            t2 = TaskItem(
+                id="task_2",
+                title=f"Stage '{doc_name}' for Cross-Device Transfer",
+                intent="relay_file",
+                target_device="cloud",
+                depends_on=["task_1"],
+                data={"source_device": "windows", "target_device": "android", "filename": doc_name},
+                status=TaskStatus.PENDING
+            )
+            t3 = TaskItem(
+                id="task_3",
+                title=f"Send '{doc_name}' to {contact_name} on WhatsApp via Android",
+                intent="send_message",
+                target_device="android",
+                contact=contact_name,
+                application="whatsapp",
+                message=f"Sharing document: {doc_name}",
+                depends_on=["task_2"],
+                requires_confirmation=True,
+                risk_level="medium",
+                data={"attachment": doc_name, "transfer_relay": True},
+                status=TaskStatus.PENDING
+            )
+            return TaskPlan(
+                plan_id=plan_id,
+                original_instruction=text,
+                tasks=[t1, t2, t3],
+                status="waiting_confirmation",
+                requires_confirmation=True,
+                confirmation_id=uuid.uuid4().hex[:6],
+                summary=f"Cross-device workflow: Locate '{doc_name}' on Windows, transfer to Android, and send to {contact_name} on WhatsApp."
+            )
+
+        # 2. "Show my laptop's battery status on my phone"
+        pat_battery = re.search(
+            r"\b(?:show|display|check)\s+(?:my\s+)?(?:laptop'?s?|pc'?s?|computer'?s?)\s+(?:battery|ram|storage|status|hardware)\s+(?:status\s+)?(?:on\s+my\s+phone|on\s+phone|on\s+android)\b",
+            lower
+        )
+        if pat_battery or ("battery" in lower and "laptop" in lower and "phone" in lower):
+            t1 = TaskItem(
+                id="task_1",
+                title="Query Windows laptop battery and hardware status",
+                intent="system_specs",
+                target_device="windows",
+                data={"metrics": ["battery", "ram", "storage"]},
+                status=TaskStatus.PENDING
+            )
+            t2 = TaskItem(
+                id="task_2",
+                title="Display laptop battery status notification on Android phone",
+                intent="notify_device",
+                target_device="android",
+                depends_on=["task_1"],
+                data={"source_device": "windows", "notification_type": "hardware_status"},
+                status=TaskStatus.PENDING
+            )
+            return TaskPlan(
+                plan_id=plan_id,
+                original_instruction=text,
+                tasks=[t1, t2],
+                status="created",
+                summary="Cross-device workflow: Read laptop battery metrics on Windows and present them on Android phone."
+            )
+
+        # 3. "Find the PDF on my phone and open it on my laptop"
+        pat_phone_to_laptop = re.search(
+            r"\b(?:find|get|locate)\s+(?:the\s+)?([a-zA-Z0-9_\-\.\s]+?)\s+(?:on\s+my\s+phone|on\s+phone)\s+(?:and\s+)?open\s+(?:it\s+)?(?:on\s+my\s+laptop|on\s+laptop|on\s+windows|on\s+pc)\b",
+            clean,
+            re.IGNORECASE
+        )
+        if pat_phone_to_laptop:
+            doc_name = pat_phone_to_laptop.group(1).strip()
+            t1 = TaskItem(
+                id="task_1",
+                title=f"Locate '{doc_name}' on Android phone",
+                intent="find_phone_file",
+                target_device="android",
+                query=doc_name,
+                status=TaskStatus.PENDING
+            )
+            t2 = TaskItem(
+                id="task_2",
+                title=f"Relay '{doc_name}' to Windows laptop",
+                intent="relay_file",
+                target_device="cloud",
+                depends_on=["task_1"],
+                data={"source_device": "android", "target_device": "windows", "filename": doc_name},
+                status=TaskStatus.PENDING
+            )
+            t3 = TaskItem(
+                id="task_3",
+                title=f"Open '{doc_name}' on Windows laptop",
+                intent="open_file",
+                target_device="windows",
+                depends_on=["task_2"],
+                data={"filename": doc_name},
+                status=TaskStatus.PENDING
+            )
+            return TaskPlan(
+                plan_id=plan_id,
+                original_instruction=text,
+                tasks=[t1, t2, t3],
+                status="created",
+                summary=f"Cross-device workflow: Locate '{doc_name}' on Android, transfer to Windows, and open in default viewer."
+            )
+
+        # 4. "Transfer this file from my laptop to my phone"
+        pat_transfer = re.search(
+            r"\btransfer\s+(?:this\s+file|a\s+file|[a-zA-Z0-9_\-\.\s]+?)\s+from\s+(?:my\s+)?(?:laptop|pc)\s+to\s+(?:my\s+)?phone\b",
+            lower
+        )
+        if pat_transfer:
+            t1 = TaskItem(
+                id="task_1",
+                title="Stage selected file on Windows laptop for transfer",
+                intent="transfer_file",
+                target_device="windows",
+                status=TaskStatus.PENDING
+            )
+            t2 = TaskItem(
+                id="task_2",
+                title="Receive and save file in Android phone Downloads folder",
+                intent="receive_file",
+                target_device="android",
+                depends_on=["task_1"],
+                status=TaskStatus.PENDING
+            )
+            return TaskPlan(
+                plan_id=plan_id,
+                original_instruction=text,
+                tasks=[t1, t2],
+                status="created",
+                summary="Cross-device workflow: Transfer file from Windows laptop to Android phone."
+            )
+
+        return None
+
     def _parse_single_clause(
         self,
         task_id: str,
@@ -407,6 +615,141 @@ class TaskPlanner:
         """
         clause_clean = clause.strip()
         clause_lower = clause_clean.lower()
+
+        # 0a. Android Device Settings (Bluetooth, WiFi, Hotspot, etc.)
+        setting_m = re.search(r"\b(?:turn\s+(on|off)|enable|disable|toggle|chalu\s+karo|band\s+karo)\s+(bluetooth|wifi|hotspot|airplane\s+mode|flashlight)\b", clause_lower)
+        setting_m_hi = re.search(r"\b(bluetooth|wifi|hotspot)\s+(?:on|off|chalu|band)\s*(?:karo|kardo)?\b", clause_lower)
+        if setting_m or setting_m_hi:
+            target_setting = setting_m.group(2) if setting_m else setting_m_hi.group(1)
+            action = "on" if ("on" in clause_lower or "chalu" in clause_lower or "enable" in clause_lower) else "off"
+            return TaskItem(
+                id=task_id,
+                title=f"Turn {action.upper()} {target_setting.title()} on Android phone",
+                intent="control_device_setting",
+                target_device="android",
+                data={"setting": target_setting, "action": action},
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), None
+
+        # 0b. Android Phone Settings App
+        if any(w in clause_lower for w in ["phone settings", "my phone settings", "phone ki settings", "mobile settings"]):
+            return TaskItem(
+                id=task_id,
+                title="Open Settings on Android phone",
+                intent="open_phone_app",
+                application="settings",
+                target_device="android",
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), "settings"
+
+        # 0c. Android Alarms
+        alarm_m = re.search(r"\b(?:set\s+(?:an\s+)?alarm|alarm\s+lagao)\s*(?:for\s+|at\s+)?([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?|[0-9]{1,2}\s*baje)?", clause_clean, re.IGNORECASE)
+        if alarm_m or ("alarm" in clause_lower and any(w in clause_lower for w in ["set", "lagao", "karo", "for", "at"])):
+            alarm_time = alarm_m.group(1).strip() if (alarm_m and alarm_m.group(1)) else "7 AM"
+            return TaskItem(
+                id=task_id,
+                title=f"Set an alarm for {alarm_time} on Android phone",
+                intent="set_alarm",
+                target_device="android",
+                data={"time": alarm_time, "label": "Alarm"},
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), None
+
+        # 0d. Android Notifications
+        if any(w in clause_lower for w in ["read my notifications", "check my notifications", "read notifications", "notifications padho", "notifications batao"]):
+            return TaskItem(
+                id=task_id,
+                title="Read notifications on Android phone",
+                intent="read_notifications",
+                target_device="android",
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), None
+
+        # 0e. Android Gallery & Photos
+        if any(w in clause_lower for w in ["gallery", "yesterday's photos", "recent photos", "my photos", "photo album"]):
+            query_str = "yesterday's photos" if "yesterday" in clause_lower else "recent photos"
+            return TaskItem(
+                id=task_id,
+                title=f"Open Gallery and search for {query_str} on Android phone",
+                intent="query_gallery",
+                target_device="android",
+                query=query_str,
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), "gallery"
+
+        # 0f. Android Contacts Lookup
+        contacts_m = re.search(r"\bfind\s+([a-zA-Z0-9\s]+?)\s+in\s+(?:my\s+)?contacts\b", clause_clean, re.IGNORECASE)
+        if contacts_m and not any(w in clause_lower for w in ["call", "phone", "dial"]):
+            c_name = contacts_m.group(1).strip()
+            return TaskItem(
+                id=task_id,
+                title=f"Find {c_name} in contacts on Android phone",
+                intent="query_contacts",
+                target_device="android",
+                contact=c_name,
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), None
+
+        # 0g. Windows Hardware & Specs (RAM, Storage, Battery)
+        if any(w in clause_lower for w in ["ram and storage", "check my laptop's ram", "battery and ram", "laptop's battery", "laptop status", "laptop specs"]):
+            return TaskItem(
+                id=task_id,
+                title="Check Windows laptop RAM, storage, and battery metrics",
+                intent="system_specs",
+                target_device="windows",
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), None
+
+        # 0h. Windows Create Folder
+        create_folder_m = re.search(r"\bcreate\s+(?:a\s+)?folder\s+(?:called|named)\s+([a-zA-Z0-9_\-\s]+)", clause_clean, re.IGNORECASE)
+        if create_folder_m:
+            f_name = create_folder_m.group(1).strip()
+            return TaskItem(
+                id=task_id,
+                title=f"Create folder '{f_name}' on Windows laptop",
+                intent="create_folder",
+                target_device="windows",
+                data={"folder_name": f_name},
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), None
+
+        # 0i. Windows Open Folders (Downloads, Documents, etc.)
+        open_folder_m = re.search(r"\bopen\s+(?:my\s+)?(downloads|documents|desktop|music|videos)\s+(?:folder)?\b", clause_clean, re.IGNORECASE)
+        if open_folder_m:
+            fold = open_folder_m.group(1).strip().lower()
+            return TaskItem(
+                id=task_id,
+                title=f"Open {fold.title()} folder in File Explorer on Windows laptop",
+                intent="open_file",
+                target_device="windows",
+                data={"folder": fold, "is_folder": True},
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), "explorer"
+
+        # 0j. Windows Find Resume / Files
+        find_file_m = re.search(r"\b(?:find|search\s+for|locate)\s+(?:my\s+)?(resume|pdf|document|file|[a-zA-Z0-9_\-\.]+\.[a-zA-Z]{2,4})\b", clause_clean, re.IGNORECASE)
+        is_calling_tentative = any(w in clause_lower for w in ["call", "phone", "dial"])
+        if find_file_m and not is_calling_tentative:
+            target_f = find_file_m.group(1).strip()
+            return TaskItem(
+                id=task_id,
+                title=f"Search for '{target_f}' in safe folders on Windows laptop",
+                intent="manage_files",
+                target_device="windows",
+                query=target_f,
+                data={"action": "find_file", "filename": target_f},
+                risk_level="low",
+                status=TaskStatus.PENDING
+            ), "explorer"
 
         # 1. Open Application Intent
         # Patterns: "open chrome", "launch whatsapp", "chrome kholo", "notepad chalao"

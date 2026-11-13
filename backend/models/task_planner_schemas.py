@@ -41,6 +41,10 @@ class TaskItem(BaseModel):
     result: Optional[str] = None
     error: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
+    target_device: str = "auto"  # "auto", "windows", "android", "cloud"
+    device_id: Optional[str] = None
+    device_type: Optional[str] = None
+    action_params: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -63,7 +67,11 @@ class TaskItem(BaseModel):
             "execution_time_ms": round(self.execution_time_ms, 1) if self.execution_time_ms is not None else None,
             "result": self.result,
             "error": self.error,
-            "data": self.data or {}
+            "data": self.data or {},
+            "target_device": self.target_device,
+            "device_id": self.device_id,
+            "device_type": self.device_type,
+            "action_params": self.action_params or {}
         }
 
 
