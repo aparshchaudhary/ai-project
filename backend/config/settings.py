@@ -48,9 +48,41 @@ class Settings(BaseModel):
     default_music_app: str = "default"
     theme: str = "dark"
 
-    # Cloud AI Integration (Optional)
+    # Cloud & Local LLM Provider Integration
+    llm_provider: str = os.getenv("LLM_PROVIDER", "openai")  # "openai", "anthropic", "gemini", "groq", "ollama", "mock"
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    groq_api_key: str = os.getenv("GROQ_API_KEY", "")
+    groq_model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2")
+    llm_temperature: float = 0.1
+    llm_timeout_seconds: float = 15.0
+
+    # Custom ML Intent Classifier & Feedback
+    ml_models_dir: Path = DATA_DIR / "models"
+    active_intent_model_dir: Path = DATA_DIR / "models" / "intent_model_v1"
+    ml_intent_confidence_threshold: float = 0.65
+    ml_ambiguity_delta_threshold: float = 0.15
+    ml_dataset_dir: Path = DATA_DIR / "ml"
+    user_feedback_path: Path = DATA_DIR / "ml" / "user_feedback.json"
+    retrain_feedback_threshold: int = 10
+
+    @property
+    def user_feedback_file(self) -> Path:
+        return self.user_feedback_path
+
+    @property
+    def dataset_dir(self) -> Path:
+        return self.ml_dataset_dir
+
+    @property
+    def models_dir(self) -> Path:
+        return self.ml_models_dir
 
     # User Safe Directories
     user_home: Path = Path.home()

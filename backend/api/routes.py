@@ -48,6 +48,10 @@ from backend.models.task_planner_schemas import TaskPlan, ContactSchema
 from backend.security.credential_store import private_config, WindowsDPAPI
 from backend.security.permissions import permission_manager, PermissionScope
 from backend.api.websocket import ws_manager
+from backend.ml.intent_inference import intent_inference_engine
+from backend.services.feedback_service import feedback_service
+from backend.ml.retrain_pipeline import retrain_pipeline
+from backend.services.autonomous_agent import autonomous_agent
 
 router = APIRouter(prefix="/api")
 
@@ -1133,6 +1137,90 @@ async def dispatch_cross_device_task(dispatch: RemoteTaskDispatch):
     """Dispatches a task directly to a specific connected device."""
     res = await device_registry_service.dispatch_task(dispatch)
     return res.model_dump()
+
+
+# ----------------------------------------------------
+# 16. Custom ML Intent & Autonomous AI Agent Endpoints
+# ----------------------------------------------------
+class PredictIntentRequest(BaseModel):
+    text: str
+
+
+class UserFeedbackRequest(BaseModel):
+    raw_utterance: str
+    predicted_intent: str
+    corrected_intent: str
+    confidence: float = 0.5
+    is_ambiguous: bool = False
+    verified_by_user: bool = True
+    notes: Optional[str] = None
+
+
+class RetrainRequest(BaseModel):
+    force: bool = False
+
+
+class AgentRunRequest(BaseModel):
+    instruction: str
+    context: Optional[Dict[str, Any]] = None
+
+
+@router.post("/ml/predict-intent")
+def predict_intent(req: PredictIntentRequest):
+    """Calibrated intent prediction using custom ML model with ambiguity detection."""
+    prediction = intent_inference_engine.predict(req.text)
+    return prediction.model_dump()
+
+
+@router.post("/ml/feedback")
+def submit_feedback(req: UserFeedbackRequest):
+    """Records an approved user correction for model retraining."""
+    correction = feedback_service.record_correction(
+        raw_utterance=req.raw_utterance,
+        predicted_intent=req.predicted_intent,
+        corrected_intent=req.corrected_intent,
+        confidence=req.confidence,
+        is_ambiguous=req.is_ambiguous,
+        verified_by_user=req.verified_by_user,
+        notes=req.notes
+    )
+    return {"success": True, "correction": correction.model_dump()}
+
+
+@router.get("/ml/feedback/stats")
+def get_feedback_stats():
+    """Returns statistics on collected feedback."""
+    return feedback_service.get_stats()
+
+
+@router.post("/ml/retrain")
+def retrain_model(req: RetrainRequest = RetrainRequest()):
+    """Executes continuous retraining pipeline with shadow validation and gated promotion."""
+    result = retrain_pipeline.run_gated_retrain(force=req.force)
+    return result
+
+
+@router.get("/ml/metrics")
+def get_ml_metrics():
+    """Returns active ML model metadata, classes, accuracy, macro-F1, and feedback readiness."""
+    meta = intent_inference_engine.metadata
+    stats = feedback_service.get_stats()
+    return {
+        "active_model_version": meta.get("version", "1.0.0"),
+        "model_type": meta.get("model_type", "Calibrated Logistic Regression with Word+Char TF-IDF"),
+        "classes": intent_inference_engine.classes,
+        "metrics": meta.get("metrics", {}),
+        "feedback_stats": stats,
+        "trained_at": meta.get("trained_at")
+    }
+
+
+@router.post("/agent/run")
+async def run_autonomous_agent(req: AgentRunRequest):
+    """Executes full Observe -> Plan -> Act -> Verify autonomous agent loop."""
+    result = await autonomous_agent.run_cycle(req.instruction, context=req.context)
+    return result
+
 
 
 
